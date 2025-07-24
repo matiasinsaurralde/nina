@@ -1,17 +1,17 @@
 .PHONY: build clean test run-api run-ingress help
 
 # Binary names
-API_BIN=api
+ENGINE_BIN=engine
 INGRESS_BIN=ingress
 CLI_BIN=nina
 
 # Build all binaries
-build: $(API_BIN) $(INGRESS_BIN) $(CLI_BIN)
+build: $(ENGINE_BIN) $(INGRESS_BIN) $(CLI_BIN)
 
-# Build API server
-$(API_BIN):
-	@echo "Building API server..."
-	go build -o $(API_BIN) ./cmd/api
+# Build Engine server
+$(ENGINE_BIN):
+	@echo "Building Engine server..."
+	go build -o $(ENGINE_BIN) ./cmd/engine
 
 # Build ingress proxy
 $(INGRESS_BIN):
@@ -26,7 +26,7 @@ $(CLI_BIN):
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(API_BIN) $(INGRESS_BIN) $(CLI_BIN)
+	rm -f $(ENGINE_BIN) $(INGRESS_BIN) $(CLI_BIN)
 
 # Run tests
 test:
@@ -38,10 +38,10 @@ test-coverage:
 	@echo "Running tests with coverage..."
 	go test -cover ./...
 
-# Run API server
-run-api: $(API_BIN)
-	@echo "Starting API server..."
-	./$(API_BIN) -verbose
+# Run Engine server
+run-engine: $(ENGINE_BIN)
+	@echo "Starting Engine server..."
+	./$(ENGINE_BIN) -verbose
 
 # Run ingress proxy
 run-ingress: $(INGRESS_BIN)
@@ -98,7 +98,7 @@ help:
 	@echo "  test-coverage- Run tests with coverage"
 	@echo "  test-integration - Run integration tests"
 	@echo "  test-race    - Run tests with race detection"
-	@echo "  run-api      - Run API server"
+	@echo "  run-engine   - Run Engine server"
 	@echo "  run-ingress  - Run ingress proxy"
 	@echo "  deps         - Install dependencies"
 	@echo "  fmt          - Format code"
