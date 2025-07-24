@@ -158,7 +158,8 @@ jobs:
     - name: Wait for Redis
       run: |
         echo "Waiting for Redis to be ready..."
-        timeout 30s bash -c 'until redis-cli ping; do sleep 1; done'
+        # Use netcat to check if Redis port is open
+        timeout 30s bash -c 'until nc -z localhost 6379; do sleep 1; done'
         echo "✅ Redis is ready"
 
     - name: Run integration tests
@@ -166,6 +167,12 @@ jobs:
         echo "Running integration tests..."
         go test -v -race -tags=integration ./pkg/store/...
         echo "✅ Integration tests completed"
+
+    - name: Run unit tests with Miniredis
+      run: |
+        echo "Running unit tests with Miniredis..."
+        go test -v -race ./pkg/store/...
+        echo "✅ Unit tests completed"
 
   # Security scan
   security:

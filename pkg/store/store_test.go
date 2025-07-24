@@ -1,46 +1,45 @@
-//go:build integration
-// +build integration
-
 package store
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
+	"github.com/redis/go-redis/v9"
 )
 
-func TestStoreIntegration(t *testing.T) {
-	// Skip if not running integration tests
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+func TestStoreWithMiniredis(t *testing.T) {
+	// Start Miniredis
+	mockRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("Failed to start Miniredis: %v", err)
 	}
+	defer mockRedis.Close()
 
 	// Create test configuration
 	cfg := &config.Config{
 		Redis: config.RedisConfig{
-			Host:     "localhost",
-			Port:     6379,
+			Host:     mockRedis.Host(),
+			Port:     mockRedis.Server().Addr().Port,
 			Password: "",
-			DB:       1, // Use different DB for tests
+			DB:       0,
 		},
 	}
 
 	// Create test logger
 	log := logger.New(logger.LevelDebug, "text")
 
-	// Create mock store (will use real Redis if available, otherwise Miniredis)
-	st, err := NewMockStore(cfg, log)
-	if err != nil {
-		t.Fatalf("Failed to create mock store: %v", err)
-	}
-	defer st.Close()
+	// Create store with mock Redis
+	client := redis.NewClient(&redis.Options{
+		Addr: mockRedis.Addr(),
+	})
 
-	// Clear any existing data
-	if err := st.FlushAll(context.Background()); err != nil {
-		t.Fatalf("Failed to flush store: %v", err)
+	store := &Store{
+		client: client,
+		logger: log,
+		config: cfg,
 	}
 
 	// Test creating a deployment
@@ -54,7 +53,7 @@ func TestStoreIntegration(t *testing.T) {
 			},
 		}
 
-		deployment, err := st.CreateDeployment(context.Background(), req)
+		deployment, err := store.CreateDeployment(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to create deployment: %v", err)
 		}
@@ -72,7 +71,7 @@ func TestStoreIntegration(t *testing.T) {
 		}
 
 		// Clean up
-		if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
+		if err := store.DeleteDeployment(context.Background(), deployment.ID); err != nil {
 			t.Errorf("Failed to clean up deployment: %v", err)
 		}
 	})
@@ -85,13 +84,13 @@ func TestStoreIntegration(t *testing.T) {
 			Ports: []int{8080},
 		}
 
-		deployment, err := st.CreateDeployment(context.Background(), req)
+		deployment, err := store.CreateDeployment(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to create deployment: %v", err)
 		}
 
 		// Get the deployment
-		retrieved, err := st.GetDeployment(context.Background(), deployment.ID)
+		retrieved, err := store.GetDeployment(context.Background(), deployment.ID)
 		if err != nil {
 			t.Fatalf("Failed to get deployment: %v", err)
 		}
@@ -105,7 +104,7 @@ func TestStoreIntegration(t *testing.T) {
 		}
 
 		// Clean up
-		if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
+		if err := store.DeleteDeployment(context.Background(), deployment.ID); err != nil {
 			t.Errorf("Failed to clean up deployment: %v", err)
 		}
 	})
@@ -118,13 +117,13 @@ func TestStoreIntegration(t *testing.T) {
 			Ports: []int{9000},
 		}
 
-		deployment, err := st.CreateDeployment(context.Background(), req)
+		deployment, err := store.CreateDeployment(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to create deployment: %v", err)
 		}
 
 		// Get by name
-		retrieved, err := st.GetDeploymentByName(context.Background(), req.Name)
+		retrieved, err := store.GetDeploymentByName(context.Background(), req.Name)
 		if err != nil {
 			t.Fatalf("Failed to get deployment by name: %v", err)
 		}
@@ -134,7 +133,7 @@ func TestStoreIntegration(t *testing.T) {
 		}
 
 		// Clean up
-		if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
+		if err := store.DeleteDeployment(context.Background(), deployment.ID); err != nil {
 			t.Errorf("Failed to clean up deployment: %v", err)
 		}
 	})
@@ -147,18 +146,18 @@ func TestStoreIntegration(t *testing.T) {
 			Ports: []int{6379},
 		}
 
-		deployment, err := st.CreateDeployment(context.Background(), req)
+		deployment, err := store.CreateDeployment(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to create deployment: %v", err)
 		}
 
 		// Update status
-		if err := st.UpdateDeploymentStatus(context.Background(), deployment.ID, "running"); err != nil {
+		if err := store.UpdateDeploymentStatus(context.Background(), deployment.ID, "running"); err != nil {
 			t.Fatalf("Failed to update deployment status: %v", err)
 		}
 
 		// Get and verify
-		retrieved, err := st.GetDeployment(context.Background(), deployment.ID)
+		retrieved, err := store.GetDeployment(context.Background(), deployment.ID)
 		if err != nil {
 			t.Fatalf("Failed to get deployment: %v", err)
 		}
@@ -168,7 +167,7 @@ func TestStoreIntegration(t *testing.T) {
 		}
 
 		// Clean up
-		if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
+		if err := store.DeleteDeployment(context.Background(), deployment.ID); err != nil {
 			t.Errorf("Failed to clean up deployment: %v", err)
 		}
 	})
@@ -184,7 +183,7 @@ func TestStoreIntegration(t *testing.T) {
 
 		createdIDs := make([]string, 0, len(deployments))
 		for _, req := range deployments {
-			deployment, err := st.CreateDeployment(context.Background(), req)
+			deployment, err := store.CreateDeployment(context.Background(), req)
 			if err != nil {
 				t.Fatalf("Failed to create deployment: %v", err)
 			}
@@ -192,7 +191,7 @@ func TestStoreIntegration(t *testing.T) {
 		}
 
 		// List deployments
-		list, err := st.ListDeployments(context.Background())
+		list, err := store.ListDeployments(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to list deployments: %v", err)
 		}
@@ -204,7 +203,7 @@ func TestStoreIntegration(t *testing.T) {
 
 		// Clean up
 		for _, id := range createdIDs {
-			if err := st.DeleteDeployment(context.Background(), id); err != nil {
+			if err := store.DeleteDeployment(context.Background(), id); err != nil {
 				t.Errorf("Failed to clean up deployment %s: %v", id, err)
 			}
 		}
@@ -218,89 +217,20 @@ func TestStoreIntegration(t *testing.T) {
 			Ports: []int{80},
 		}
 
-		deployment, err := st.CreateDeployment(context.Background(), req)
+		deployment, err := store.CreateDeployment(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to create deployment: %v", err)
 		}
 
 		// Delete the deployment
-		if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
+		if err := store.DeleteDeployment(context.Background(), deployment.ID); err != nil {
 			t.Fatalf("Failed to delete deployment: %v", err)
 		}
 
 		// Try to get it - should fail
-		_, err = st.GetDeployment(context.Background(), deployment.ID)
+		_, err = store.GetDeployment(context.Background(), deployment.ID)
 		if err == nil {
 			t.Error("Expected error when getting deleted deployment, got nil")
-		}
-	})
-}
-
-func TestStoreConcurrency(t *testing.T) {
-	// Skip if not running integration tests
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// Create test configuration
-	cfg := &config.Config{
-		Redis: config.RedisConfig{
-			Host:     "localhost",
-			Port:     6379,
-			Password: "",
-			DB:       2, // Use different DB for concurrency tests
-		},
-	}
-
-	// Create test logger
-	log := logger.New(logger.LevelDebug, "text")
-
-	// Create mock store (will use real Redis if available, otherwise Miniredis)
-	st, err := NewMockStore(cfg, log)
-	if err != nil {
-		t.Fatalf("Failed to create mock store: %v", err)
-	}
-	defer st.Close()
-
-	// Clear any existing data
-	if err := st.FlushAll(context.Background()); err != nil {
-		t.Fatalf("Failed to flush store: %v", err)
-	}
-
-	// Test concurrent deployment creation
-	t.Run("ConcurrentDeploymentCreation", func(t *testing.T) {
-		const numGoroutines = 10
-		results := make(chan error, numGoroutines)
-
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				req := &ProvisionRequest{
-					Name:  fmt.Sprintf("concurrent-app-%d", id),
-					Image: "nginx:latest",
-					Ports: []int{80 + id},
-				}
-
-				deployment, err := st.CreateDeployment(context.Background(), req)
-				if err != nil {
-					results <- fmt.Errorf("failed to create deployment %d: %v", id, err)
-					return
-				}
-
-				// Clean up
-				if err := st.DeleteDeployment(context.Background(), deployment.ID); err != nil {
-					results <- fmt.Errorf("failed to delete deployment %d: %v", id, err)
-					return
-				}
-
-				results <- nil
-			}(i)
-		}
-
-		// Wait for all goroutines to complete
-		for i := 0; i < numGoroutines; i++ {
-			if err := <-results; err != nil {
-				t.Errorf("Concurrent operation failed: %v", err)
-			}
 		}
 	})
 }

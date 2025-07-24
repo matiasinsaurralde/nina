@@ -69,6 +69,11 @@ test-integration:
 	@echo "Running integration tests..."
 	go test -v -tags=integration ./pkg/store/...
 
+# Run unit tests with Miniredis
+test-unit:
+	@echo "Running unit tests with Miniredis..."
+	go test -v ./pkg/store/...
+
 # Run tests with race detection
 test-race:
 	@echo "Running tests with race detection..."
