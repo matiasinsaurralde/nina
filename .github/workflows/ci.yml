@@ -114,6 +114,9 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         cache: true
 
+    - name: Download dependencies
+      run: go mod download
+
     - name: Install golangci-lint
       uses: golangci/golangci-lint-action@v4
       with:
@@ -123,7 +126,7 @@ jobs:
       uses: golangci/golangci-lint-action@v4
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
-        args: --timeout=5m --race --no-config --disable=errcheck,staticcheck
+        args: --timeout=5m --race --no-config --disable=errcheck,staticcheck --build-tags=integration
 
   # Integration test with Redis
   integration-test:

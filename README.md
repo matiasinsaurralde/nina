@@ -156,7 +156,10 @@ go test ./...
 # Run tests with race detection
 make test-race
 
-# Run integration tests (requires Redis)
+# Run unit tests with Miniredis (no external dependencies)
+make test-unit
+
+# Run integration tests (uses real Redis if available, otherwise Miniredis)
 make test-integration
 
 # Run specific package tests
@@ -250,7 +253,7 @@ The project includes a comprehensive CI pipeline that runs on every push and pul
 - **Parallel Builds**: All components (api, ingress, nina) are built in parallel
 - **Race Detection**: Tests run with Go's race detector enabled
 - **Code Quality**: golangci-lint with multiple linters for code quality
-- **Integration Tests**: Redis integration tests with real database
+- **Integration Tests**: Redis integration tests with automatic fallback to Miniredis
 - **Security Scan**: Vulnerability scanning with govulncheck
 - **Validation**: go.mod validation, dependency checks, and formatting validation
 

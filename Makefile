@@ -62,7 +62,7 @@ fmt:
 # Lint code
 lint:
 	@echo "Linting code..."
-	golangci-lint run --no-config --disable=errcheck,staticcheck
+	golangci-lint run --no-config --disable=errcheck,staticcheck --build-tags=integration
 
 # Run integration tests
 test-integration:
