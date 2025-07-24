@@ -1,0 +1,79 @@
+.PHONY: build clean test run-api run-ingress help
+
+# Binary names
+API_BIN=api
+INGRESS_BIN=ingress
+CLI_BIN=nina
+
+# Build all binaries
+build: $(API_BIN) $(INGRESS_BIN) $(CLI_BIN)
+
+# Build API server
+$(API_BIN):
+	@echo "Building API server..."
+	go build -o $(API_BIN) ./cmd/api
+
+# Build ingress proxy
+$(INGRESS_BIN):
+	@echo "Building ingress proxy..."
+	go build -o $(INGRESS_BIN) ./cmd/ingress
+
+# Build CLI
+$(CLI_BIN):
+	@echo "Building CLI..."
+	go build -o $(CLI_BIN) ./cmd/nina
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	rm -f $(API_BIN) $(INGRESS_BIN) $(CLI_BIN)
+
+# Run tests
+test:
+	@echo "Running tests..."
+	go test ./...
+
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	go test -cover ./...
+
+# Run API server
+run-api: $(API_BIN)
+	@echo "Starting API server..."
+	./$(API_BIN) -verbose
+
+# Run ingress proxy
+run-ingress: $(INGRESS_BIN)
+	@echo "Starting ingress proxy..."
+	./$(INGRESS_BIN) -verbose
+
+# Install dependencies
+deps:
+	@echo "Installing dependencies..."
+	go mod tidy
+	go mod download
+
+# Format code
+fmt:
+	@echo "Formatting code..."
+	go fmt ./...
+
+# Lint code
+lint:
+	@echo "Linting code..."
+	golangci-lint run
+
+# Show help
+help:
+	@echo "Available targets:"
+	@echo "  build        - Build all binaries"
+	@echo "  clean        - Clean build artifacts"
+	@echo "  test         - Run tests"
+	@echo "  test-coverage- Run tests with coverage"
+	@echo "  run-api      - Run API server"
+	@echo "  run-ingress  - Run ingress proxy"
+	@echo "  deps         - Install dependencies"
+	@echo "  fmt          - Format code"
+	@echo "  lint         - Lint code"
+	@echo "  help         - Show this help" 

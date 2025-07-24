@@ -18,7 +18,13 @@ Nina leverages three core technologies:
 
 ## Features
 
-*[Features to be documented as the project evolves]*
+- **Container Provisioning**: Create and manage container deployments via REST API
+- **Reverse Proxy Ingress**: Route HTTP requests based on Host headers to appropriate containers
+- **Redis-backed Storage**: Persistent storage for deployment metadata and state
+- **RESTful API**: Full CRUD operations for deployments
+- **CLI Interface**: Command-line tool for interacting with the API
+- **Configurable Logging**: Colored terminal output with multiple log levels
+- **XDG-compliant Configuration**: Automatic config file creation in `$HOME/.nina/`
 
 ## Prerequisites
 
@@ -52,7 +58,58 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 
 ## Usage
 
-*[Usage instructions to be added as the project develops]*
+### Starting the API Server
+
+```bash
+# Start the API server with default configuration
+./api
+
+# Start with custom configuration file
+./api -config /path/to/config.json
+
+# Start with verbose logging
+./api -verbose
+
+# Start with custom log level
+./api -log-level debug
+```
+
+### Starting the Ingress Proxy
+
+```bash
+# Start the ingress proxy
+./ingress
+
+# Start with custom configuration
+./ingress -config /path/to/config.json -verbose
+```
+
+### Using the CLI
+
+```bash
+# Check API server health
+./nina health
+
+# Provision a new deployment
+./nina provision --name my-app --image nginx:latest --ports 80,443
+
+# List all deployments
+./nina list
+
+# Get deployment status
+./nina status <deployment-id>
+
+# Delete a deployment
+./nina delete <deployment-id>
+```
+
+### API Endpoints
+
+- `GET /health` - Health check
+- `POST /api/v1/provision` - Create a new deployment
+- `GET /api/v1/deployments` - List all deployments
+- `GET /api/v1/deployments/:id/status` - Get deployment status
+- `DELETE /api/v1/deployments/:id` - Delete a deployment
 
 ## Development
 
@@ -60,6 +117,17 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 
 ```
 nina/
+├── cmd/
+│   ├── api/        # API server binary
+│   ├── ingress/    # Ingress proxy binary
+│   └── nina/       # CLI binary
+├── pkg/
+│   ├── apiserver/  # API server implementation
+│   ├── cli/        # CLI client implementation
+│   ├── config/     # Configuration management
+│   ├── ingress/    # Reverse proxy implementation
+│   ├── logger/     # Logging utilities
+│   └── store/      # Redis storage layer
 ├── go.mod          # Go module definition
 ├── .gitignore      # Git ignore patterns
 ├── nina_hr.png     # High-resolution project image
@@ -70,13 +138,24 @@ nina/
 ### Building
 
 ```bash
-go build -o nina .
+# Build all binaries
+go build -o api ./cmd/api
+go build -o ingress ./cmd/ingress
+go build -o nina ./cmd/nina
+
+# Or build everything at once
+make build
 ```
 
 ### Running Tests
 
 ```bash
+# Run all tests
 go test ./...
+
+# Run specific package tests
+go test ./pkg/ingress
+go test ./pkg/store
 ```
 
 ## Contributing
@@ -103,6 +182,45 @@ This is a PoC project for research and learning purposes. Contributions are welc
 - Redis for high-performance data storage
 - Go community for excellent tooling and ecosystem
 
+## Quick Start
+
+1. **Start Redis** (if not already running):
+   ```bash
+   docker run -d --name redis -p 6379:6379 redis:alpine
+   ```
+
+2. **Build the project**:
+   ```bash
+   make build
+   ```
+
+3. **Start the API server**:
+   ```bash
+   ./api -verbose
+   ```
+
+4. **In another terminal, use the CLI**:
+   ```bash
+   # Check health
+   ./nina health
+   
+   # Provision a deployment
+   ./nina provision --name my-app --image nginx:latest --ports 80
+   
+   # List deployments
+   ./nina list
+   ```
+
+## Architecture Overview
+
+Nina consists of three main components:
+
+1. **API Server** (`cmd/api`): RESTful API for managing container deployments
+2. **Ingress Proxy** (`cmd/ingress`): Reverse proxy that routes requests based on Host headers
+3. **CLI Tool** (`cmd/nina`): Command-line interface for interacting with the API
+
+The system uses Redis for persistent storage and supports XDG-compliant configuration management.
+
 ---
 
-*This project is currently in development as a Proof of Concept. More details and documentation will be added as the project evolves.* 
+*This project is a Proof of Concept demonstrating container provisioning concepts. The current implementation simulates container operations and routes all ingress traffic to httpbin.org for demonstration purposes.* 
