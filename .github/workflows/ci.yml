@@ -126,7 +126,7 @@ jobs:
       uses: golangci/golangci-lint-action@v8
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
-        args: --timeout=5m --race --build-tags=integration
+        args: --timeout=5m --build-tags=integration
 
   # Integration test with Redis
   integration-test:
