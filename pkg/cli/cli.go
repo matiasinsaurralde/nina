@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/matiasinsaurralde/nina/internal/pkg/archive"
+	"github.com/matiasinsaurralde/nina/internal/pkg/git"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
 	"github.com/matiasinsaurralde/nina/pkg/store"
+	"github.com/matiasinsaurralde/nina/pkg/types"
 )
 
 // CLI represents the command line interface
@@ -163,7 +167,7 @@ func (c *CLI) ListDeployments(ctx context.Context) ([]*store.Deployment, error) 
 	return response.Deployments, nil
 }
 
-// HealthCheck checks if the API server is healthy
+// HealthCheck checks if the Engine server is healthy
 func (c *CLI) HealthCheck(ctx context.Context) error {
 	url := fmt.Sprintf("http://%s/health", c.config.GetServerAddr())
 
@@ -184,4 +188,92 @@ func (c *CLI) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// Build builds a deployment from the current directory
+func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, error) {
+	// Check if the working directory is a Git repository
+	if !git.IsGitRepository(workingDir) {
+		return nil, fmt.Errorf("directory is not a Git repository: %s", workingDir)
+	}
+
+	// Get repository URL
+	repoURL, err := git.GetRepoURL(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository URL: %w", err)
+	}
+
+	// Extract app name from repository URL
+	appName, err := git.ExtractAppNameFromRepoURL(repoURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract app name from repository URL: %w", err)
+	}
+
+	// Get last commit information
+	commitInfo, err := git.GetLastCommitInfo(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last commit information: %w", err)
+	}
+
+	// Create temporary directory and copy contents
+	tempDir, err := archive.CreateTempDirAndCopy(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create gzipped tar base64
+	bundleContents, err := archive.CreateGzippedTarBase64(tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzipped tar archive: %w", err)
+	}
+
+	// Create build request
+	req := &types.DeploymentBuildRequest{
+		AppName:        appName,
+		RepoURL:        repoURL,
+		Author:         commitInfo.Author,
+		AuthorEmail:    commitInfo.Email,
+		CommitHash:     commitInfo.Hash,
+		CommitMessage:  commitInfo.Message,
+		NoContainers:   types.DefaultNoContainers,
+		BundleContents: bundleContents,
+	}
+
+	// Send request to API
+	url := fmt.Sprintf("http://%s/api/v1/build", c.config.GetServerAddr())
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("build failed: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	var deployment types.Deployment
+	if err := json.Unmarshal(body, &deployment); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &deployment, nil
 }

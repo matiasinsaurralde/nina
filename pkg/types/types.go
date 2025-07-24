@@ -1,6 +1,11 @@
 // Package types provides common data structures for the Nina application.
 package types
 
+const (
+	// DefaultNoContainers is the default number of containers for a deployment
+	DefaultNoContainers = 1
+)
+
 // DeploymentStatus represents the status of a deployment.
 type DeploymentStatus string
 
@@ -21,6 +26,12 @@ type Deployment struct {
 	Status     DeploymentStatus `json:"status"`
 }
 
+type DeploymentImage struct {
+	ImageTag string `json:"image_tag"`
+	ImageID  string `json:"image_id"`
+	Size     int64  `json:"size"`
+}
+
 // Container represents a container configuration.
 type Container struct {
 	ContainerID string `json:"container_id"`
@@ -34,7 +45,7 @@ type DeploymentBuildRequest struct {
 	Author         string `json:"author"`
 	AuthorEmail    string `json:"author_email"`
 	CommitHash     string `json:"commit_hash"`
+	CommitMessage  string `json:"commit_message"`
 	NoContainers   int64  `json:"no_containers"`
-	Status         string `json:"status"`
 	BundleContents string `json:"bundle_content"`
 }

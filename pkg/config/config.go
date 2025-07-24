@@ -17,7 +17,7 @@ type Config struct {
 	Ingress IngressConfig `mapstructure:"ingress"`
 }
 
-// ServerConfig holds the API server configuration
+// ServerConfig holds the Engine server configuration
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
