@@ -1,3 +1,4 @@
+// Package ingress provides reverse proxy and routing functionality for the Nina application.
 package ingress
 
 import (
@@ -44,8 +45,9 @@ func (i *Ingress) Start(ctx context.Context) error {
 	mux.HandleFunc("/", i.handleRequest)
 
 	i.server = &http.Server{
-		Addr:    i.config.GetIngressAddr(),
-		Handler: mux,
+		Addr:              i.config.GetIngressAddr(),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	i.logger.Info("Starting ingress server", "addr", i.config.GetIngressAddr())
@@ -65,7 +67,7 @@ func (i *Ingress) Start(ctx context.Context) error {
 func (i *Ingress) Stop(ctx context.Context) error {
 	if i.server != nil {
 		i.logger.Info("Stopping ingress server")
-		return i.server.Shutdown(ctx)
+		return fmt.Errorf("failed to shutdown ingress: %w", i.server.Shutdown(ctx))
 	}
 	return nil
 }
@@ -116,7 +118,7 @@ func (i *Ingress) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add error handler
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		i.logger.Error("Proxy error", "host", host, "target", targetURL.String(), "error", err)
 		http.Error(w, "Proxy error", http.StatusBadGateway)
 	}
@@ -145,7 +147,11 @@ func (i *Ingress) getTargetForHost(host string) (*url.URL, error) {
 
 	i.logger.Debug("Routing host to target", "host", host, "target", target)
 
-	return url.Parse(target)
+	parsedURL, err := url.Parse(target)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse target URL: %w", err)
+	}
+	return parsedURL, nil
 }
 
 // AddRoute adds a new routing rule

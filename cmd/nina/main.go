@@ -1,3 +1,4 @@
+// Package main provides the CLI entry point for the Nina application.
 package main
 
 import (
@@ -21,7 +22,7 @@ var (
 )
 
 func main() {
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:   "nina",
 		Short: "Nina - Container Provisioning Engine CLI",
 		Long: `Nina is a Proof of Concept container provisioning engine.
@@ -79,7 +80,7 @@ func provisionCmd() *cobra.Command {
 		Use:   "provision",
 		Short: "Provision a new container deployment",
 		Long:  `Provision a new container deployment with the specified configuration.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
@@ -135,7 +136,7 @@ func deleteCmd() *cobra.Command {
 		Short: "Delete a deployment",
 		Long:  `Delete a deployment by its ID.`,
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
@@ -162,7 +163,7 @@ func statusCmd() *cobra.Command {
 		Short: "Get deployment status",
 		Long:  `Get the status of a deployment by its ID.`,
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
@@ -195,7 +196,7 @@ func listCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all deployments",
 		Long:  `List all deployments.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
@@ -227,7 +228,7 @@ func healthCmd() *cobra.Command {
 		Use:   "health",
 		Short: "Check API server health",
 		Long:  `Check if the API server is healthy.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err

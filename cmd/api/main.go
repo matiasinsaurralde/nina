@@ -1,3 +1,4 @@
+// Package main provides the API server entry point for the Nina application.
 package main
 
 import (
@@ -45,18 +46,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize store", "error", err)
 	}
-	defer func() {
-		if err := st.Close(); err != nil {
-			log.Error("Failed to close store", "error", err)
-		}
-	}()
 
 	// Initialize API server
 	server := apiserver.NewAPIServer(cfg, log, st)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -71,7 +66,9 @@ func main() {
 	// Start the server
 	log.Info("Starting server", "addr", cfg.GetServerAddr())
 	if err := server.Start(ctx); err != nil {
-		log.Fatal("Server failed", "error", err)
+		log.Error("Server failed", "error", err)
+		cancel()
+		os.Exit(1)
 	}
 
 	log.Info("Server stopped")

@@ -8,7 +8,7 @@ on:
 
 env:
   GO_VERSION: '1.24.5'
-  GOLANGCI_LINT_VERSION: 'v1.59.0'
+  GOLANGCI_LINT_VERSION: 'v8.0.0'
 
 jobs:
   # Build all components in parallel
@@ -118,15 +118,15 @@ jobs:
       run: go mod download
 
     - name: Install golangci-lint
-      uses: golangci/golangci-lint-action@v4
+      uses: golangci/golangci-lint-action@v8
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v4
+      uses: golangci/golangci-lint-action@v8
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
-        args: --timeout=5m --race --no-config --disable=errcheck,staticcheck --build-tags=integration
+        args: --timeout=5m --race --build-tags=integration
 
   # Integration test with Redis
   integration-test:

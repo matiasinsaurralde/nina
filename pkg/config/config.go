@@ -1,3 +1,4 @@
+// Package config provides configuration management for the Nina application.
 package config
 
 import (
@@ -65,7 +66,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file not found, create default one
-			if err := createDefaultConfig(); err != nil {
+			if createErr := createDefaultConfig(); createErr != nil {
 				return nil, fmt.Errorf("failed to create default config: %w", err)
 			}
 		} else {
@@ -106,7 +107,7 @@ func getConfigDir() string {
 	configDir := filepath.Join(homeDir, ".nina")
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		// Fallback to current directory
 		return "."
 	}
@@ -123,7 +124,7 @@ func createDefaultConfig() error {
 	setDefaults()
 
 	// Write config file
-	return viper.WriteConfigAs(configPath)
+	return fmt.Errorf("failed to write config: %w", viper.WriteConfigAs(configPath))
 }
 
 // GetRedisAddr returns the Redis address string

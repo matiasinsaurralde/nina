@@ -1,7 +1,9 @@
+// Package apiserver provides HTTP API server functionality for the Nina application.
 package apiserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -59,8 +61,9 @@ func NewAPIServer(cfg *config.Config, log *logger.Logger, st *store.Store) APISe
 // Start starts the API server
 func (s *BaseAPIServer) Start(ctx context.Context) error {
 	s.server = &http.Server{
-		Addr:    s.config.GetServerAddr(),
-		Handler: s.router,
+		Addr:              s.config.GetServerAddr(),
+		Handler:           s.router,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	s.logger.Info("Starting API server", "addr", s.config.GetServerAddr())
@@ -80,7 +83,7 @@ func (s *BaseAPIServer) Start(ctx context.Context) error {
 func (s *BaseAPIServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		s.logger.Info("Stopping API server")
-		return s.server.Shutdown(ctx)
+		return fmt.Errorf("failed to shutdown server: %w", s.server.Shutdown(ctx))
 	}
 	return nil
 }
@@ -102,12 +105,10 @@ func (s *BaseAPIServer) setupRoutes() {
 
 	// API v1 routes
 	v1 := s.router.Group("/api/v1")
-	{
-		v1.POST("/provision", s.provisionHandler)
-		v1.DELETE("/deployments/:id", s.deleteDeploymentHandler)
-		v1.GET("/deployments/:id/status", s.getDeploymentStatusHandler)
-		v1.GET("/deployments", s.listDeploymentsHandler)
-	}
+	v1.POST("/provision", s.provisionHandler)
+	v1.DELETE("/deployments/:id", s.deleteDeploymentHandler)
+	v1.GET("/deployments/:id/status", s.getDeploymentStatusHandler)
+	v1.GET("/deployments", s.listDeploymentsHandler)
 }
 
 // healthHandler handles health check requests

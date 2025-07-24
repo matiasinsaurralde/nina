@@ -1,3 +1,4 @@
+// Package cli provides command-line interface functionality for the Nina application.
 package cli
 
 import (
@@ -52,7 +53,7 @@ func (c *CLI) Provision(ctx context.Context, req *store.ProvisionRequest) (*stor
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -75,7 +76,7 @@ func (c *CLI) Provision(ctx context.Context, req *store.ProvisionRequest) (*stor
 func (c *CLI) DeleteDeployment(ctx context.Context, id string) error {
 	url := fmt.Sprintf("http://%s/api/v1/deployments/%s", c.config.GetServerAddr(), id)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -84,7 +85,7 @@ func (c *CLI) DeleteDeployment(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -98,7 +99,7 @@ func (c *CLI) DeleteDeployment(ctx context.Context, id string) error {
 func (c *CLI) GetDeploymentStatus(ctx context.Context, id string) (*store.Deployment, error) {
 	url := fmt.Sprintf("http://%s/api/v1/deployments/%s/status", c.config.GetServerAddr(), id)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -107,7 +108,7 @@ func (c *CLI) GetDeploymentStatus(ctx context.Context, id string) (*store.Deploy
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -130,7 +131,7 @@ func (c *CLI) GetDeploymentStatus(ctx context.Context, id string) (*store.Deploy
 func (c *CLI) ListDeployments(ctx context.Context) ([]*store.Deployment, error) {
 	url := fmt.Sprintf("http://%s/api/v1/deployments", c.config.GetServerAddr())
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -139,7 +140,7 @@ func (c *CLI) ListDeployments(ctx context.Context) ([]*store.Deployment, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -166,7 +167,7 @@ func (c *CLI) ListDeployments(ctx context.Context) ([]*store.Deployment, error) 
 func (c *CLI) HealthCheck(ctx context.Context) error {
 	url := fmt.Sprintf("http://%s/health", c.config.GetServerAddr())
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -175,7 +176,7 @@ func (c *CLI) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

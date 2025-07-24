@@ -1,65 +1,78 @@
+version: "2"
 run:
   timeout: 5m
-
+  go: "1.24"
+  modules-download-mode: readonly
 linters:
+  default: none
+  enable:
+    - bodyclose
+    - dogsled
+    - dupl
+    - errcheck
+    - funlen
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - goheader
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - lll
+    - makezero
+    - misspell
+    - nakedret
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - promlinter
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+    - wrapcheck
+  settings:
+    govet:
+      enable:
+        - shadow
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    misspell:
+      locale: US
+    lll:
+      line-length: 140
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+formatters:
   enable:
     - gofmt
-    - govet
-    - staticcheck
-    - gosimple
-    - unused
-    - misspell
-    - gosec
-    - gocyclo
-    - dupl
-    - goconst
-    - revive
-    - godot
-    - gomnd
-    - whitespace
-
-  disable:
-    - lll
-    - funlen
-    - gocognit
-    - cyclop
-    - errcheck
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  gomnd:
-    checks: argument,case,condition,operation,return,assign
-  revive:
-    rules:
-      - name: exported
-        arguments:
-          - disableStutteringCheck
-  godot:
-    scope: declarations
-    period: true
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gomnd
-        - gocyclo
-        - dupl
-    - path: pkg/logger/logger\.go
-      linters:
-        - gomnd
-        - staticcheck
-    - path: pkg/store/store\.go
-      linters:
-        - gomnd
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
-severity:
-  default-severity: error 
+    - gofumpt
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/matiasinsaurralde/nina

@@ -1,3 +1,4 @@
+// Package main provides the ingress server entry point for the Nina application.
 package main
 
 import (
@@ -45,18 +46,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize store", "error", err)
 	}
-	defer func() {
-		if err := st.Close(); err != nil {
-			log.Error("Failed to close store", "error", err)
-		}
-	}()
 
 	// Initialize ingress
 	ing := ingress.NewIngress(cfg, log, st)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -71,7 +66,9 @@ func main() {
 	// Start the ingress
 	log.Info("Starting ingress", "addr", cfg.GetIngressAddr())
 	if err := ing.Start(ctx); err != nil {
-		log.Fatal("Ingress failed", "error", err)
+		log.Error("Ingress failed", "error", err)
+		cancel()
+		os.Exit(1)
 	}
 
 	log.Info("Ingress stopped")

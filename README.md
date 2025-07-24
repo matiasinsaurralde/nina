@@ -2,6 +2,8 @@
 
 ![Nina Logo](nina_lr.png)
 
+[![CI](https://github.com/matiasinsaurralde/nina/workflows/CI/badge.svg)](https://github.com/matiasinsaurralde/nina/actions?query=workflow%3ACI)
+
 A Proof of Concept (PoC) container provisioning engine built with Go, Redis, and Docker Engine.
 
 ## Overview

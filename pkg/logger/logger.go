@@ -1,3 +1,4 @@
+// Package logger provides structured logging functionality for the Nina application.
 package logger
 
 import (
@@ -13,9 +14,13 @@ import (
 type Level string
 
 const (
+	// LevelDebug represents debug logging level.
 	LevelDebug Level = "debug"
-	LevelInfo  Level = "info"
-	LevelWarn  Level = "warn"
+	// LevelInfo represents info logging level.
+	LevelInfo Level = "info"
+	// LevelWarn represents warning logging level.
+	LevelWarn Level = "warn"
+	// LevelError represents error logging level.
 	LevelError Level = "error"
 )
 
@@ -114,7 +119,7 @@ func (l *Logger) Fatal(msg string, args ...any) {
 // WithContext creates a new logger with additional context
 func (l *Logger) WithContext(key string, value any) *Logger {
 	return &Logger{
-		Logger: l.Logger.With(key, value),
+		Logger: l.With(key, value),
 		level:  l.level,
 	}
 }
@@ -127,7 +132,7 @@ func (l *Logger) WithFields(fields map[string]any) *Logger {
 	}
 
 	return &Logger{
-		Logger: l.Logger.With(args...),
+		Logger: l.With(args...),
 		level:  l.level,
 	}
 }

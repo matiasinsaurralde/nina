@@ -1,3 +1,4 @@
+// Package store provides data storage functionality for the Nina application.
 package store
 
 import (
@@ -66,7 +67,7 @@ func NewStore(cfg *config.Config, log *logger.Logger) (*Store, error) {
 
 // Close closes the Redis connection
 func (s *Store) Close() error {
-	return s.client.Close()
+	return fmt.Errorf("failed to close Redis client: %w", s.client.Close())
 }
 
 // CreateDeployment creates a new deployment
@@ -191,7 +192,7 @@ func (s *Store) ListDeployments(ctx context.Context) ([]*Deployment, error) {
 		return nil, fmt.Errorf("failed to get deployment keys: %w", err)
 	}
 
-	var deployments []*Deployment
+	deployments := make([]*Deployment, 0, len(keys))
 	for _, key := range keys {
 		// Skip name mappings
 		if len(key) > 14 && key[:14] == "deployment:name" {
