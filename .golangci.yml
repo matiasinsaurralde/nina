@@ -1,0 +1,65 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - gosimple
+    - unused
+    - misspell
+    - gosec
+    - gocyclo
+    - dupl
+    - goconst
+    - revive
+    - godot
+    - gomnd
+    - whitespace
+
+  disable:
+    - lll
+    - funlen
+    - gocognit
+    - cyclop
+    - errcheck
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gomnd:
+    checks: argument,case,condition,operation,return,assign
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+  godot:
+    scope: declarations
+    period: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gomnd
+        - gocyclo
+        - dupl
+    - path: pkg/logger/logger\.go
+      linters:
+        - gomnd
+        - staticcheck
+    - path: pkg/store/store\.go
+      linters:
+        - gomnd
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+severity:
+  default-severity: error 

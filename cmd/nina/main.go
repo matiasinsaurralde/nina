@@ -119,8 +119,12 @@ func provisionCmd() *cobra.Command {
 	cmd.Flags().IntSliceVar(&ports, "ports", []int{}, "Container ports")
 	cmd.Flags().StringToStringVar(&environment, "env", map[string]string{}, "Environment variables")
 
-	cmd.MarkFlagRequired("name")
-	cmd.MarkFlagRequired("image")
+	if err := cmd.MarkFlagRequired("name"); err != nil {
+		panic(err) // This should never happen in practice
+	}
+	if err := cmd.MarkFlagRequired("image"); err != nil {
+		panic(err) // This should never happen in practice
+	}
 
 	return cmd
 }

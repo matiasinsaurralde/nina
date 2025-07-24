@@ -153,9 +153,31 @@ make build
 # Run all tests
 go test ./...
 
+# Run tests with race detection
+make test-race
+
+# Run integration tests (requires Redis)
+make test-integration
+
 # Run specific package tests
 go test ./pkg/ingress
 go test ./pkg/store
+```
+
+### Code Quality
+
+```bash
+# Format code
+make fmt
+
+# Lint code
+make lint
+
+# Run security scan
+make security
+
+# Run full CI pipeline locally
+make ci
 ```
 
 ## Contributing
@@ -220,6 +242,19 @@ Nina consists of three main components:
 3. **CLI Tool** (`cmd/nina`): Command-line interface for interacting with the API
 
 The system uses Redis for persistent storage and supports XDG-compliant configuration management.
+
+## Continuous Integration
+
+The project includes a comprehensive CI pipeline that runs on every push and pull request:
+
+- **Parallel Builds**: All components (api, ingress, nina) are built in parallel
+- **Race Detection**: Tests run with Go's race detector enabled
+- **Code Quality**: golangci-lint with multiple linters for code quality
+- **Integration Tests**: Redis integration tests with real database
+- **Security Scan**: Vulnerability scanning with govulncheck
+- **Validation**: go.mod validation, dependency checks, and formatting validation
+
+The CI workflow ensures code quality and catches issues early in the development process.
 
 ---
 

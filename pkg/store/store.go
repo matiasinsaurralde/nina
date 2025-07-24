@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/matiasinsaurralde/nina/pkg/config"
@@ -194,6 +195,11 @@ func (s *Store) ListDeployments(ctx context.Context) ([]*Deployment, error) {
 	for _, key := range keys {
 		// Skip name mappings
 		if len(key) > 14 && key[:14] == "deployment:name" {
+			continue
+		}
+
+		// Only process actual deployment keys (not name mappings)
+		if strings.HasPrefix(key, "deployment:name:") {
 			continue
 		}
 
