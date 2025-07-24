@@ -8,7 +8,7 @@ on:
 
 env:
   GO_VERSION: '1.24.5'
-  GOLANGCI_LINT_VERSION: 'v8.0.0'
+  GOLANGCI_LINT_VERSION: 'v2.1.0'
 
 jobs:
   # Build all components in parallel
