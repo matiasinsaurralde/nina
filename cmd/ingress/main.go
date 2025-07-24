@@ -31,6 +31,7 @@ func main() {
 
 	// Initialize logger
 	log := logger.New(logger.Level(*logLevel), *logFormat)
+	log.ForceColor() // Force color output for better visibility
 	log.Info("Starting Nina Ingress")
 
 	// Load configuration

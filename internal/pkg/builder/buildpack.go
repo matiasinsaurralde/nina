@@ -20,7 +20,6 @@ type Buildpack interface {
 
 type BaseBuildpack struct {
 	Config *config.Config
-	Name   string
 }
 
 func (b *BaseBuildpack) SetConfig(ctx context.Context, cfg *config.Config) error {

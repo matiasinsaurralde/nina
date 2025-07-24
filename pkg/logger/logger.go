@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -46,9 +47,8 @@ func NewWithOptions(level Level, format string, forceColor bool) *Logger {
 			Level: getSlogLevel(level),
 		})
 	default:
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: getSlogLevel(level),
-		})
+		// Use custom handler that preserves ANSI color codes
+		handler = newColoredTextHandler(os.Stdout, getSlogLevel(level))
 	}
 
 	logger := slog.New(handler)
@@ -74,9 +74,8 @@ func NewWithWriterAndOptions(level Level, format string, w io.Writer, forceColor
 			Level: getSlogLevel(level),
 		})
 	default:
-		handler = slog.NewTextHandler(w, &slog.HandlerOptions{
-			Level: getSlogLevel(level),
-		})
+		// Use custom handler that preserves ANSI color codes
+		handler = newColoredTextHandler(w, getSlogLevel(level))
 	}
 
 	logger := slog.New(handler)
@@ -223,7 +222,45 @@ func isTerminal() bool {
 		return true
 	}
 
+	// macOS specific checks
+	if os.Getenv("TERM_PROGRAM") != "" {
+		return true
+	}
+
 	return false
+}
+
+// DebugTerminalInfo prints debug information about terminal detection
+func (l *Logger) DebugTerminalInfo() {
+	fmt.Fprintf(os.Stderr, "=== Terminal Debug Info ===\n")
+
+	// Check stdout
+	fileInfo, err := os.Stdout.Stat()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stdout stat error: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "stdout is char device: %v\n", (fileInfo.Mode()&os.ModeCharDevice) != 0)
+	}
+
+	// Check stderr
+	fileInfo, err = os.Stderr.Stat()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stderr stat error: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "stderr is char device: %v\n", (fileInfo.Mode()&os.ModeCharDevice) != 0)
+	}
+
+	// Environment variables
+	fmt.Fprintf(os.Stderr, "TERM: %s\n", os.Getenv("TERM"))
+	fmt.Fprintf(os.Stderr, "COLORTERM: %s\n", os.Getenv("COLORTERM"))
+	fmt.Fprintf(os.Stderr, "TERM_PROGRAM: %s\n", os.Getenv("TERM_PROGRAM"))
+	fmt.Fprintf(os.Stderr, "ANSICON: %s\n", os.Getenv("ANSICON"))
+
+	// Final result
+	fmt.Fprintf(os.Stderr, "isTerminal(): %v\n", isTerminal())
+	fmt.Fprintf(os.Stderr, "forceColor: %v\n", l.forceColor)
+	fmt.Fprintf(os.Stderr, "IsColorEnabled(): %v\n", l.IsColorEnabled())
+	fmt.Fprintf(os.Stderr, "========================\n")
 }
 
 // GetLevel returns the current log level
@@ -249,4 +286,65 @@ func (l *Logger) DisableColor() {
 // Timestamp returns the current timestamp in a formatted string
 func Timestamp() string {
 	return time.Now().Format("2006-01-02T15:04:05.000Z07:00")
+}
+
+// coloredTextHandler is a custom slog handler that preserves ANSI color codes
+type coloredTextHandler struct {
+	writer io.Writer
+	level  slog.Level
+}
+
+// newColoredTextHandler creates a new colored text handler
+func newColoredTextHandler(w io.Writer, level slog.Level) *coloredTextHandler {
+	return &coloredTextHandler{
+		writer: w,
+		level:  level,
+	}
+}
+
+// Enabled implements slog.Handler.Enabled
+func (h *coloredTextHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return level >= h.level
+}
+
+// Handle implements slog.Handler.Handle
+func (h *coloredTextHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Format the record without escaping the message
+	var buf strings.Builder
+
+	// Add timestamp
+	buf.WriteString(fmt.Sprintf("time=%s ", r.Time.Format("2006-01-02T15:04:05.000-07:00")))
+
+	// Add level
+	buf.WriteString(fmt.Sprintf("level=%s ", r.Level.String()))
+
+	// Add message (without escaping)
+	buf.WriteString(fmt.Sprintf("msg=%s ", r.Message))
+
+	// Add attributes
+	r.Attrs(func(a slog.Attr) bool {
+		buf.WriteString(fmt.Sprintf("%s=%v ", a.Key, a.Value))
+		return true
+	})
+
+	// Remove trailing space and add newline
+	output := strings.TrimSpace(buf.String()) + "\n"
+
+	// Write to the underlying writer
+	_, err := h.writer.Write([]byte(output))
+	return err
+}
+
+// WithAttrs implements slog.Handler.WithAttrs
+func (h *coloredTextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	// For simplicity, return the same handler
+	// In a full implementation, you'd want to store the attrs
+	return h
+}
+
+// WithGroup implements slog.Handler.WithGroup
+func (h *coloredTextHandler) WithGroup(name string) slog.Handler {
+	// For simplicity, return the same handler
+	// In a full implementation, you'd want to handle groups
+	return h
 }

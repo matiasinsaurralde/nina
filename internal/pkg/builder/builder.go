@@ -10,7 +10,7 @@ import (
 )
 
 var availableBuildpacks = []Buildpack{
-	&BuildpackGolang{BaseBuildpack: &BaseBuildpack{}},
+	&BuildpackGolang{BaseBuildpack: &BaseBuildpack{}, name: "golang"},
 }
 
 // Builder is the interface that wraps the MatchBuildpack method.
