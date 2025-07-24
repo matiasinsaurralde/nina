@@ -83,5 +83,8 @@ func (m *MockStore) Close() error {
 
 // FlushAll clears all data from the store
 func (m *MockStore) FlushAll(ctx context.Context) error {
-	return fmt.Errorf("failed to flush all: %w", m.client.FlushAll(ctx).Err())
+	if err := m.client.FlushAll(ctx).Err(); err != nil {
+		return fmt.Errorf("failed to flush all: %w", err)
+	}
+	return nil
 }

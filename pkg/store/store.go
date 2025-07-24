@@ -67,7 +67,10 @@ func NewStore(cfg *config.Config, log *logger.Logger) (*Store, error) {
 
 // Close closes the Redis connection
 func (s *Store) Close() error {
-	return fmt.Errorf("failed to close Redis client: %w", s.client.Close())
+	if err := s.client.Close(); err != nil {
+		return fmt.Errorf("failed to close Redis client: %w", err)
+	}
+	return nil
 }
 
 // CreateDeployment creates a new deployment
