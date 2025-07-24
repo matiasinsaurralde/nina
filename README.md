@@ -60,20 +60,20 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 
 ## Usage
 
-### Starting the API Server
+### Starting the Engine Server
 
 ```bash
-# Start the API server with default configuration
-./api
+# Start the Engine server with default configuration
+./engine
 
 # Start with custom configuration file
-./api -config /path/to/config.json
+./engine -config /path/to/config.json
 
 # Start with verbose logging
-./api -verbose
+./engine -verbose
 
 # Start with custom log level
-./api -log-level debug
+./engine -log-level debug
 ```
 
 ### Starting the Ingress Proxy
@@ -89,7 +89,7 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 ### Using the CLI
 
 ```bash
-# Check API server health
+# Check Engine server health
 ./nina health
 
 # Provision a new deployment
@@ -120,11 +120,11 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 ```
 nina/
 ├── cmd/
-│   ├── api/        # API server binary
+│   ├── engine/     # Engine server binary
 │   ├── ingress/    # Ingress proxy binary
 │   └── nina/       # CLI binary
 ├── pkg/
-│   ├── apiserver/  # API server implementation
+│   ├── engine/  # Engine server implementation
 │   ├── cli/        # CLI client implementation
 │   ├── config/     # Configuration management
 │   ├── ingress/    # Reverse proxy implementation
@@ -141,7 +141,7 @@ nina/
 
 ```bash
 # Build all binaries
-go build -o api ./cmd/api
+go build -o engine ./cmd/engine
 go build -o ingress ./cmd/ingress
 go build -o nina ./cmd/nina
 
@@ -221,9 +221,9 @@ This is a PoC project for research and learning purposes. Contributions are welc
    make build
    ```
 
-3. **Start the API server**:
+3. **Start the Engine server**:
    ```bash
-   ./api -verbose
+   ./engine -verbose
    ```
 
 4. **In another terminal, use the CLI**:
@@ -242,7 +242,7 @@ This is a PoC project for research and learning purposes. Contributions are welc
 
 Nina consists of three main components:
 
-1. **API Server** (`cmd/api`): RESTful API for managing container deployments
+1. **Engine Server** (`cmd/engine`): RESTful API for managing container deployments
 2. **Ingress Proxy** (`cmd/ingress`): Reverse proxy that routes requests based on Host headers
 3. **CLI Tool** (`cmd/nina`): Command-line interface for interacting with the API
 
