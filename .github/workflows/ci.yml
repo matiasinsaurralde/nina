@@ -17,11 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        component: [api, ingress, nina]
+        component: [engine, ingress, nina]
         include:
-          - component: api
-            path: ./cmd/api
-            binary: api
+          - component: engine
+            path: ./cmd/engine
+            binary: engine
           - component: ingress
             path: ./cmd/ingress
             binary: ingress
