@@ -26,7 +26,7 @@ func main() {
 		Use:   "nina",
 		Short: "Nina - Container Provisioning Engine CLI",
 		Long: `Nina is a Proof of Concept container provisioning engine.
-This CLI allows you to interact with the Nina API server to manage container deployments.`,
+This CLI allows you to interact with the Nina Engine server to manage container deployments.`,
 	}
 
 	// Global flags
@@ -37,6 +37,7 @@ This CLI allows you to interact with the Nina API server to manage container dep
 
 	// Add subcommands
 	rootCmd.AddCommand(provisionCmd())
+	rootCmd.AddCommand(buildCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(listCmd())
@@ -56,6 +57,7 @@ func getCLI() (*cli.CLI, *logger.Logger, error) {
 
 	// Initialize logger
 	log := logger.New(logger.Level(logLevel), logFormat)
+	log.ForceColor() // Force color output for better visibility
 
 	// Load configuration
 	cfg, err := config.LoadConfig(configPath)
@@ -125,6 +127,44 @@ func provisionCmd() *cobra.Command {
 	}
 	if err := cmd.MarkFlagRequired("image"); err != nil {
 		panic(err) // This should never happen in practice
+	}
+
+	return cmd
+}
+
+func buildCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "build",
+		Short: "Build a deployment from the current directory",
+		Long:  `Build a deployment from the current Git repository. This command will create a TAR archive of the current directory (excluding .git), compress it, and send it to the Engine server for building.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			c, log, err := getCLI()
+			if err != nil {
+				return err
+			}
+
+			// Get current working directory
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get current working directory: %w", err)
+			}
+
+			log.Info("Building deployment from directory", "dir", workingDir)
+
+			deployment, err := c.Build(context.Background(), workingDir)
+			if err != nil {
+				return fmt.Errorf("failed to build deployment: %w", err)
+			}
+
+			// Output JSON
+			data, err := json.MarshalIndent(deployment, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to marshal response: %w", err)
+			}
+
+			fmt.Println(string(data))
+			return nil
+		},
 	}
 
 	return cmd
@@ -226,21 +266,21 @@ func listCmd() *cobra.Command {
 func healthCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "health",
-		Short: "Check API server health",
-		Long:  `Check if the API server is healthy.`,
+		Short: "Check Engine server health",
+		Long:  `Check if the Engine server is healthy.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
-			log.Info("Checking API server health")
+			log.Info("Checking Engine server health")
 
 			if err := c.HealthCheck(context.Background()); err != nil {
 				return fmt.Errorf("health check failed: %w", err)
 			}
 
-			fmt.Println("API server is healthy")
+			fmt.Println("Engine server is healthy")
 			return nil
 		},
 	}

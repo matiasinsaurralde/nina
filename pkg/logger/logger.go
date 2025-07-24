@@ -27,11 +27,17 @@ const (
 // Logger wraps slog.Logger with additional functionality
 type Logger struct {
 	*slog.Logger
-	level Level
+	level      Level
+	forceColor bool
 }
 
 // New creates a new logger with the specified level and format
 func New(level Level, format string) *Logger {
+	return NewWithOptions(level, format, false)
+}
+
+// NewWithOptions creates a new logger with the specified level, format, and options
+func NewWithOptions(level Level, format string, forceColor bool) *Logger {
 	var handler slog.Handler
 
 	switch strings.ToLower(format) {
@@ -47,13 +53,19 @@ func New(level Level, format string) *Logger {
 
 	logger := slog.New(handler)
 	return &Logger{
-		Logger: logger,
-		level:  level,
+		Logger:     logger,
+		level:      level,
+		forceColor: forceColor,
 	}
 }
 
 // NewWithWriter creates a new logger with a custom writer
 func NewWithWriter(level Level, format string, w io.Writer) *Logger {
+	return NewWithWriterAndOptions(level, format, w, false)
+}
+
+// NewWithWriterAndOptions creates a new logger with a custom writer and options
+func NewWithWriterAndOptions(level Level, format string, w io.Writer, forceColor bool) *Logger {
 	var handler slog.Handler
 
 	switch strings.ToLower(format) {
@@ -69,8 +81,9 @@ func NewWithWriter(level Level, format string, w io.Writer) *Logger {
 
 	logger := slog.New(handler)
 	return &Logger{
-		Logger: logger,
-		level:  level,
+		Logger:     logger,
+		level:      level,
+		forceColor: forceColor,
 	}
 }
 
@@ -92,35 +105,36 @@ func getSlogLevel(level Level) slog.Level {
 
 // Debug logs a debug message with color
 func (l *Logger) Debug(msg string, args ...any) {
-	l.Logger.Debug(colorize(msg, "cyan"), args...)
+	l.Logger.Debug(l.colorize(msg, "cyan"), args...)
 }
 
 // Info logs an info message with color
 func (l *Logger) Info(msg string, args ...any) {
-	l.Logger.Info(colorize(msg, "green"), args...)
+	l.Logger.Info(l.colorize(msg, "green"), args...)
 }
 
 // Warn logs a warning message with color
 func (l *Logger) Warn(msg string, args ...any) {
-	l.Logger.Warn(colorize(msg, "yellow"), args...)
+	l.Logger.Warn(l.colorize(msg, "yellow"), args...)
 }
 
 // Error logs an error message with color
 func (l *Logger) Error(msg string, args ...any) {
-	l.Logger.Error(colorize(msg, "red"), args...)
+	l.Logger.Error(l.colorize(msg, "red"), args...)
 }
 
 // Fatal logs a fatal message and exits
 func (l *Logger) Fatal(msg string, args ...any) {
-	l.Logger.Error(colorize(msg, "red"), args...)
+	l.Logger.Error(l.colorize(msg, "red"), args...)
 	os.Exit(1)
 }
 
 // WithContext creates a new logger with additional context
 func (l *Logger) WithContext(key string, value any) *Logger {
 	return &Logger{
-		Logger: l.With(key, value),
-		level:  l.level,
+		Logger:     l.With(key, value),
+		level:      l.level,
+		forceColor: l.forceColor,
 	}
 }
 
@@ -132,17 +146,30 @@ func (l *Logger) WithFields(fields map[string]any) *Logger {
 	}
 
 	return &Logger{
-		Logger: l.With(args...),
-		level:  l.level,
+		Logger:     l.With(args...),
+		level:      l.level,
+		forceColor: l.forceColor,
 	}
 }
 
 // colorize adds ANSI color codes to the message
-func colorize(msg, color string) string {
-	if !isTerminal() {
-		return msg
+func (l *Logger) colorize(msg, color string) string {
+	// If forceColor is enabled, always add colors
+	if l.forceColor {
+		return l.addColorCodes(msg, color)
 	}
 
+	// Check if we're in a terminal environment
+	if isTerminal() {
+		return l.addColorCodes(msg, color)
+	}
+
+	// No color support, return original message
+	return msg
+}
+
+// addColorCodes adds the actual ANSI color codes to the message
+func (l *Logger) addColorCodes(msg, color string) string {
 	var colorCode string
 	switch color {
 	case "red":
@@ -169,13 +196,54 @@ func colorize(msg, color string) string {
 
 // isTerminal checks if the output is a terminal
 func isTerminal() bool {
-	fileInfo, _ := os.Stdout.Stat()
-	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+	// Check if stdout is a character device
+	fileInfo, err := os.Stdout.Stat()
+	if err == nil && (fileInfo.Mode()&os.ModeCharDevice) != 0 {
+		return true
+	}
+
+	// Check if stderr is a character device (fallback)
+	fileInfo, err = os.Stderr.Stat()
+	if err == nil && (fileInfo.Mode()&os.ModeCharDevice) != 0 {
+		return true
+	}
+
+	// Check environment variables that indicate terminal support
+	if term := os.Getenv("TERM"); term != "" && term != "dumb" {
+		return true
+	}
+
+	// Check if COLORTERM is set (indicates color support)
+	if os.Getenv("COLORTERM") != "" {
+		return true
+	}
+
+	// Check if we're on Windows and have ANSI support
+	if os.Getenv("ANSICON") != "" {
+		return true
+	}
+
+	return false
 }
 
 // GetLevel returns the current log level
 func (l *Logger) GetLevel() Level {
 	return l.level
+}
+
+// ForceColor enables forced color output
+func (l *Logger) ForceColor() {
+	l.forceColor = true
+}
+
+// IsColorEnabled returns true if color output is enabled
+func (l *Logger) IsColorEnabled() bool {
+	return l.forceColor || isTerminal()
+}
+
+// DisableColor disables color output
+func (l *Logger) DisableColor() {
+	l.forceColor = false
 }
 
 // Timestamp returns the current timestamp in a formatted string

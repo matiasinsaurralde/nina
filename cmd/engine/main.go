@@ -1,4 +1,4 @@
-// Package main provides the API server entry point for the Nina application.
+// Package main provides the Engine server entry point for the Nina application.
 package main
 
 import (
@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/matiasinsaurralde/nina/pkg/apiserver"
 	"github.com/matiasinsaurralde/nina/pkg/config"
+	"github.com/matiasinsaurralde/nina/pkg/engine"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
 	"github.com/matiasinsaurralde/nina/pkg/store"
 )
@@ -21,6 +21,7 @@ func main() {
 		logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 		logFormat  = flag.String("log-format", "text", "Log format (text, json)")
 		verbose    = flag.Bool("verbose", false, "Enable verbose logging")
+		noColor    = flag.Bool("no-color", false, "Disable color output")
 	)
 	flag.Parse()
 
@@ -31,7 +32,10 @@ func main() {
 
 	// Initialize logger
 	log := logger.New(logger.Level(*logLevel), *logFormat)
-	log.Info("Starting Nina API Server")
+	if !*noColor {
+		log.ForceColor() // Force color output for better visibility
+	}
+	log.Info("Starting Nina Engine")
 
 	// Load configuration
 	cfg, err := config.LoadConfig(*configPath)
@@ -47,8 +51,8 @@ func main() {
 		log.Fatal("Failed to initialize store", "error", err)
 	}
 
-	// Initialize API server
-	server := apiserver.NewAPIServer(cfg, log, st)
+	// Initialize Engine server
+	server := engine.NewEngine(cfg, log, st)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
