@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -268,26 +269,26 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag string) error {
 	s.logger.Info("Starting container deployment", "app_name", appName, "image_tag", imageTag)
 
-	// Find available port (simple implementation - in production you'd want a more sophisticated port management)
-	port := 5001 // For now, use a fixed port
+	// Use Docker's automatic port assignment to avoid conflicts
+	containerPort := 8080 // Default container port (from Dockerfile)
 
 	// Create container configuration
 	containerConfig := &container.Config{
 		Image: imageTag,
 		Env: []string{
-			fmt.Sprintf("PORT=%d", port),
+			fmt.Sprintf("PORT=%d", containerPort),
 		},
 		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): struct{}{},
+			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): struct{}{},
 		},
 	}
 
 	hostConfig := &container.HostConfig{
 		PortBindings: nat.PortMap{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): []nat.PortBinding{
+			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
 				{
 					HostIP:   "0.0.0.0",
-					HostPort: fmt.Sprintf("%d", port),
+					HostPort: "", // Empty string = Docker assigns random available port
 				},
 			},
 		},
@@ -307,14 +308,29 @@ func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag str
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	s.logger.Info("Container started", "container_id", containerID, "app_name", appName)
+	// Get the actual assigned host port by inspecting the container
+	containerInfo, err := s.dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
 
-	// Create container info
+	// Extract the assigned host port
+	var hostPort int
+	if bindings, exists := containerInfo.NetworkSettings.Ports[nat.Port(fmt.Sprintf("%d/tcp", containerPort))]; exists && len(bindings) > 0 {
+		hostPort, _ = strconv.Atoi(bindings[0].HostPort)
+		s.logger.Info("Container port mapping", "container_id", containerID, "container_port", containerPort, "host_port", hostPort)
+	} else {
+		return fmt.Errorf("failed to get assigned host port for container %s", containerID)
+	}
+
+	s.logger.Info("Container started", "container_id", containerID, "app_name", appName, "host_port", hostPort)
+
+	// Create container info with the actual assigned port
 	container := types.Container{
 		ContainerID: containerID,
 		ImageTag:    imageTag,
 		Address:     "localhost",
-		Port:        port,
+		Port:        hostPort, // Use the actual assigned host port
 	}
 
 	// Update deployment with container information and set status to ready
@@ -322,7 +338,7 @@ func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag str
 		return fmt.Errorf("failed to update deployment with containers: %w", err)
 	}
 
-	s.logger.Info("Deployment completed successfully", "app_name", appName, "container_id", containerID)
+	s.logger.Info("Deployment completed successfully", "app_name", appName, "container_id", containerID, "host_port", hostPort)
 	return nil
 }
 
@@ -364,12 +380,15 @@ func (s *BaseEngine) deleteDeploymentHandler(c *gin.Context) {
 	}
 
 	// Clean up containers for new deployment type
+	containersRemoved := 0
 	for _, cont := range deployment.Containers {
 		if cont.ContainerID != "" {
-			s.logger.Info("Removing container", "container_id", cont.ContainerID, "app_name", deployment.AppName)
+			s.logger.Info("Removing container", "container_id", cont.ContainerID, "app_name", deployment.AppName, "port", cont.Port)
 			if err := s.dockerClient.ContainerRemove(c.Request.Context(), cont.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 				s.logger.Error("Failed to remove container", "container_id", cont.ContainerID, "error", err)
 				// Continue with other containers even if one fails
+			} else {
+				containersRemoved++
 			}
 		}
 	}
@@ -383,11 +402,11 @@ func (s *BaseEngine) deleteDeploymentHandler(c *gin.Context) {
 		return
 	}
 
-	s.logger.Info("Deployment deleted successfully", "id", id, "app_name", deployment.AppName, "containers_removed", len(deployment.Containers))
+	s.logger.Info("Deployment deleted successfully", "id", id, "app_name", deployment.AppName, "containers_removed", containersRemoved)
 	c.JSON(http.StatusOK, gin.H{
 		"message":            "Deployment deleted successfully",
 		"id":                 id,
-		"containers_removed": len(deployment.Containers),
+		"containers_removed": containersRemoved,
 	})
 }
 
