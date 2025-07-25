@@ -191,7 +191,7 @@ func (c *CLI) HealthCheck(ctx context.Context) error {
 }
 
 // Build builds a deployment from the current directory
-func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, error) {
+func (c *CLI) Build(ctx context.Context, workingDir string) (*types.DeploymentImage, error) {
 	// Check if the working directory is a Git repository
 	if !git.IsGitRepository(workingDir) {
 		return nil, fmt.Errorf("directory is not a Git repository: %s", workingDir)
@@ -279,12 +279,12 @@ func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, 
 		return nil, fmt.Errorf("build failed: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var deployment types.Deployment
-	if err := json.Unmarshal(body, &deployment); err != nil {
+	var deploymentImage types.DeploymentImage
+	if err := json.Unmarshal(body, &deploymentImage); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	return &deployment, nil
+	return &deploymentImage, nil
 }
 
 // ListBuilds lists all builds

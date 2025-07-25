@@ -28,6 +28,8 @@ func main() {
 		Short: "Nina - Container Provisioning Engine CLI",
 		Long: `Nina is a Proof of Concept container provisioning engine.
 This CLI allows you to interact with the Nina Engine server to manage container deployments.`,
+		SilenceUsage:  true, // Don't show usage on errors
+		SilenceErrors: true, // Don't show error messages (we handle them ourselves)
 	}
 
 	// Global flags
@@ -153,18 +155,17 @@ func buildCmd() *cobra.Command {
 
 			log.Info("Building deployment from directory", "dir", workingDir)
 
-			deployment, err := c.Build(context.Background(), workingDir)
+			deploymentImage, err := c.Build(context.Background(), workingDir)
 			if err != nil {
 				return fmt.Errorf("failed to build deployment: %w", err)
 			}
 
-			// Output JSON
-			data, err := json.MarshalIndent(deployment, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal response: %w", err)
-			}
-
-			fmt.Println(string(data))
+			// Output friendly success message
+			fmt.Printf("✅ Build completed successfully!\n")
+			fmt.Printf("📦 Image Tag: %s\n", deploymentImage.ImageTag)
+			fmt.Printf("🆔 Image ID: %s\n", deploymentImage.ImageID)
+			fmt.Printf("📏 Size: %s\n", formatBytes(deploymentImage.Size))
+			fmt.Printf("\nThe container image has been successfully built and stored.\n")
 			return nil
 		},
 	}
@@ -345,4 +346,18 @@ func healthCmd() *cobra.Command {
 	}
 
 	return cmd
+}
+
+// formatBytes formats bytes into human readable format
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
