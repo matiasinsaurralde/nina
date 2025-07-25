@@ -39,8 +39,9 @@ type LoggingConfig struct {
 
 // IngressConfig holds the ingress proxy configuration
 type IngressConfig struct {
-	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port"`
+	Host                      string `mapstructure:"host"`
+	Port                      int    `mapstructure:"port"`
+	DeploymentRefreshInterval int    `mapstructure:"deployment_refresh_interval"`
 }
 
 // LoadConfig loads configuration from file and environment variables
@@ -94,6 +95,7 @@ func setDefaults() {
 	viper.SetDefault("logging.format", "text")
 	viper.SetDefault("ingress.host", "0.0.0.0")
 	viper.SetDefault("ingress.port", 8081)
+	viper.SetDefault("ingress.deployment_refresh_interval", 5)
 }
 
 // getConfigDir returns the XDG-compliant config directory
