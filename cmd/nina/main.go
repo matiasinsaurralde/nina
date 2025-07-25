@@ -76,6 +76,8 @@ func getCLI() (*cli.CLI, *logger.Logger, error) {
 }
 
 func deployCmd() *cobra.Command {
+	var replicas int
+
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Deploy applications",
@@ -92,10 +94,10 @@ func deployCmd() *cobra.Command {
 				return fmt.Errorf("failed to get current working directory: %w", err)
 			}
 
-			log.Info("Deploying project from directory", "dir", workingDir)
+			log.Info("Deploying project from directory", "dir", workingDir, "replicas", replicas)
 
 			startTime := time.Now()
-			deployment, err := c.Deploy(context.Background(), workingDir)
+			deployment, err := c.Deploy(context.Background(), workingDir, replicas)
 			if err != nil {
 				return fmt.Errorf("failed to deploy application: %w", err)
 			}
@@ -124,6 +126,9 @@ func deployCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	// Add flags
+	cmd.Flags().IntVar(&replicas, "replicas", 1, "Number of container replicas to deploy")
 
 	// Add subcommands
 	cmd.AddCommand(deployLsCmd())
@@ -156,8 +161,8 @@ func deployLsCmd() *cobra.Command {
 			}
 
 			// Print header
-			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
-			fmt.Println(strings.Repeat("-", 110))
+			fmt.Printf("%-20s %-12s %-20s %-40s %-15s %-10s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS", "REPLICAS")
+			fmt.Println(strings.Repeat("-", 120))
 
 			// Print deployments
 			for _, deployment := range deployments {
@@ -173,12 +178,16 @@ func deployLsCmd() *cobra.Command {
 					commitHash = commitHash[:12]
 				}
 
-				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
+				// Get replica count (number of containers)
+				replicaCount := len(deployment.Containers)
+
+				fmt.Printf("%-20s %-12s %-20s %-40s %-15s %-10d\n",
 					deployment.AppName,
 					commitHash,
 					deployment.Author,
 					commitMsg,
-					deployment.Status)
+					deployment.Status,
+					replicaCount)
 			}
 
 			fmt.Printf("\nTotal deployments: %d\n", len(deployments))

@@ -51,7 +51,6 @@ func TestNewBundleWithLogging(t *testing.T) {
 		Author:         "Test User",
 		AuthorEmail:    "test@example.com",
 		CommitHash:     "abc123",
-		NoContainers:   1,
 		BundleContents: encoded,
 	}
 

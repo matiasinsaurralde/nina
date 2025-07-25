@@ -77,7 +77,7 @@ func (c *CLI) Provision(ctx context.Context, req *store.ProvisionRequest) (*stor
 }
 
 // Deploy deploys an application from the current directory
-func (c *CLI) Deploy(ctx context.Context, workingDir string) (*types.Deployment, error) {
+func (c *CLI) Deploy(ctx context.Context, workingDir string, replicas int) (*types.Deployment, error) {
 	// Check if the working directory is a Git repository
 	if !git.IsGitRepository(workingDir) {
 		return nil, fmt.Errorf("directory is not a Git repository: %s", workingDir)
@@ -117,6 +117,7 @@ func (c *CLI) Deploy(ctx context.Context, workingDir string) (*types.Deployment,
 		Author:        commitInfo.Author,
 		AuthorEmail:   commitInfo.Email,
 		CommitMessage: commitInfo.Message,
+		Replicas:      replicas,
 	}
 
 	// Send request to API
@@ -326,7 +327,6 @@ func (c *CLI) Build(ctx context.Context, workingDir string) (*types.DeploymentIm
 		AuthorEmail:    commitInfo.Email,
 		CommitHash:     commitInfo.Hash,
 		CommitMessage:  commitInfo.Message,
-		NoContainers:   types.DefaultNoContainers,
 		BundleContents: bundleContents,
 	}
 

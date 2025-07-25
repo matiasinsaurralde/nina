@@ -3,11 +3,6 @@ package types
 
 import "time"
 
-const (
-	// DefaultNoContainers is the default number of containers for a deployment
-	DefaultNoContainers = 1
-)
-
 // DeploymentStatus represents the status of a deployment.
 type (
 	DeploymentStatus string
@@ -41,6 +36,7 @@ type DeploymentRequest struct {
 	Author        string `json:"author"`
 	AuthorEmail   string `json:"author_email"`
 	CommitMessage string `json:"commit_message"`
+	Replicas      int    `json:"replicas"`
 }
 
 // Deployment represents a deployment configuration.
@@ -80,7 +76,6 @@ type BuildRequest struct {
 	AuthorEmail    string `json:"author_email"`
 	CommitHash     string `json:"commit_hash"`
 	CommitMessage  string `json:"commit_message"`
-	NoContainers   int64  `json:"no_containers"`
 	BundleContents string `json:"bundle_content"`
 }
 

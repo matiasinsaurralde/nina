@@ -3,10 +3,13 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
+
+	"math/big"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -217,7 +220,7 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 		return
 	}
 
-	s.logger.Info("Processing deployment request", "app_name", req.AppName, "commit_hash", req.CommitHash)
+	s.logger.Info("Processing deployment request", "app_name", req.AppName, "commit_hash", req.CommitHash, "replicas", req.Replicas)
 
 	// Check if build exists and is built
 	build, err := s.store.GetBuild(ctx, req.CommitHash)
@@ -254,7 +257,8 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 
 	// Deploy containers in background
 	go func() {
-		if err := s.deployContainers(context.Background(), req.AppName, build.ImageTag); err != nil {
+		s.logger.Info("Starting container deployment in background", "app_name", req.AppName, "replicas", req.Replicas)
+		if err := s.deployContainers(context.Background(), req.AppName, build.ImageTag, req.Replicas); err != nil {
 			s.logger.Error("Failed to deploy containers", "app_name", req.AppName, "error", err)
 			if updateErr := s.store.UpdateNewDeploymentStatus(context.Background(), req.AppName, types.DeploymentStatusFailed); updateErr != nil {
 				s.logger.Error("Failed to update deployment status to failed", "error", updateErr)
@@ -266,80 +270,98 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 }
 
 // deployContainers deploys containers for the given app
-func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag string) error {
-	s.logger.Info("Starting container deployment", "app_name", appName, "image_tag", imageTag)
+func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag string, replicas int) error {
+	s.logger.Info("Starting container deployment", "app_name", appName, "image_tag", imageTag, "replicas", replicas)
 
 	// Use Docker's automatic port assignment to avoid conflicts
 	containerPort := 8080 // Default container port (from Dockerfile)
 
-	// Create container configuration
-	containerConfig := &container.Config{
-		Image: imageTag,
-		Env: []string{
-			fmt.Sprintf("PORT=%d", containerPort),
-		},
-		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): struct{}{},
-		},
-	}
+	var containers []types.Container
 
-	hostConfig := &container.HostConfig{
-		PortBindings: nat.PortMap{
-			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
-				{
-					HostIP:   "0.0.0.0",
-					HostPort: "", // Empty string = Docker assigns random available port
+	// Create multiple containers based on replicas count
+	for i := 0; i < replicas; i++ {
+		s.logger.Info("Creating container", "replica", i+1, "total_replicas", replicas)
+
+		// Create container configuration
+		containerConfig := &container.Config{
+			Image: imageTag,
+			Env: []string{
+				fmt.Sprintf("PORT=%d", containerPort),
+			},
+			ExposedPorts: nat.PortSet{
+				nat.Port(fmt.Sprintf("%d/tcp", containerPort)): struct{}{},
+			},
+		}
+
+		hostConfig := &container.HostConfig{
+			PortBindings: nat.PortMap{
+				nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
+					{
+						HostIP:   "0.0.0.0",
+						HostPort: "", // Empty string = Docker assigns random available port
+					},
 				},
 			},
-		},
+		}
+
+		// Create container with unique name
+		containerName := s.generateUniqueContainerName(appName, i+1)
+		resp, err := s.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+		if err != nil {
+			return fmt.Errorf("failed to create container %d: %w", i+1, err)
+		}
+
+		containerID := resp.ID
+		s.logger.Info("Container created", "container_id", containerID, "app_name", appName, "replica", i+1)
+
+		// Start container
+		if err := s.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+			return fmt.Errorf("failed to start container %d: %w", i+1, err)
+		}
+
+		// Get the actual assigned host port by inspecting the container
+		containerInfo, err := s.dockerClient.ContainerInspect(ctx, containerID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect container %d: %w", i+1, err)
+		}
+
+		// Extract the assigned host port
+		var hostPort int
+		if bindings, exists := containerInfo.NetworkSettings.Ports[nat.Port(fmt.Sprintf("%d/tcp", containerPort))]; exists && len(bindings) > 0 {
+			hostPort, _ = strconv.Atoi(bindings[0].HostPort)
+			s.logger.Info("Container port mapping", "container_id", containerID, "container_port", containerPort, "host_port", hostPort, "replica", i+1)
+		} else {
+			return fmt.Errorf("failed to get assigned host port for container %s", containerID)
+		}
+
+		s.logger.Info("Container started", "container_id", containerID, "app_name", appName, "host_port", hostPort, "replica", i+1)
+
+		// Create container info with the actual assigned port
+		container := types.Container{
+			ContainerID: containerID,
+			ImageTag:    imageTag,
+			Address:     "localhost",
+			Port:        hostPort, // Use the actual assigned host port
+		}
+
+		containers = append(containers, container)
+		s.logger.Info("Container added to list", "replica", i+1, "total_containers", len(containers))
 	}
 
-	// Create container
-	resp, err := s.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, fmt.Sprintf("nina-%s", appName))
-	if err != nil {
-		return fmt.Errorf("failed to create container: %w", err)
-	}
-
-	containerID := resp.ID
-	s.logger.Info("Container created", "container_id", containerID, "app_name", appName)
-
-	// Start container
-	if err := s.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
-	}
-
-	// Get the actual assigned host port by inspecting the container
-	containerInfo, err := s.dockerClient.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect container: %w", err)
-	}
-
-	// Extract the assigned host port
-	var hostPort int
-	if bindings, exists := containerInfo.NetworkSettings.Ports[nat.Port(fmt.Sprintf("%d/tcp", containerPort))]; exists && len(bindings) > 0 {
-		hostPort, _ = strconv.Atoi(bindings[0].HostPort)
-		s.logger.Info("Container port mapping", "container_id", containerID, "container_port", containerPort, "host_port", hostPort)
-	} else {
-		return fmt.Errorf("failed to get assigned host port for container %s", containerID)
-	}
-
-	s.logger.Info("Container started", "container_id", containerID, "app_name", appName, "host_port", hostPort)
-
-	// Create container info with the actual assigned port
-	container := types.Container{
-		ContainerID: containerID,
-		ImageTag:    imageTag,
-		Address:     "localhost",
-		Port:        hostPort, // Use the actual assigned host port
-	}
-
-	// Update deployment with container information and set status to ready
-	if err := s.store.UpdateNewDeploymentWithContainers(ctx, appName, []types.Container{container}, types.DeploymentStatusReady); err != nil {
+	// Update deployment with all container information and set status to ready
+	if err := s.store.UpdateNewDeploymentWithContainers(ctx, appName, containers, types.DeploymentStatusReady); err != nil {
 		return fmt.Errorf("failed to update deployment with containers: %w", err)
 	}
 
-	s.logger.Info("Deployment completed successfully", "app_name", appName, "container_id", containerID, "host_port", hostPort)
+	s.logger.Info("Deployment completed successfully", "app_name", appName, "replicas", replicas, "containers", len(containers))
 	return nil
+}
+
+// generateUniqueContainerName generates a unique container name
+func (s *BaseEngine) generateUniqueContainerName(appName string, replica int) string {
+	// Generate a random number for uniqueness
+	n, _ := rand.Int(rand.Reader, big.NewInt(999999))
+	return fmt.Sprintf("nina-%s-%d-%d", appName, replica, n.Int64())
 }
 
 // deleteDeploymentHandler handles deployment deletion requests
