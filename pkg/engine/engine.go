@@ -336,7 +336,46 @@ func (s *BaseEngine) deleteDeploymentHandler(c *gin.Context) {
 		return
 	}
 
-	if err := s.store.DeleteDeployment(c.Request.Context(), id); err != nil {
+	// Try to get deployment using the new types structure first
+	deployment, err := s.store.GetNewDeployment(c.Request.Context(), id)
+	if err != nil {
+		// If not found, try the old structure
+		_, oldErr := s.store.GetDeployment(c.Request.Context(), id)
+		if oldErr != nil {
+			s.logger.Error("Failed to get deployment", "id", id, "error", err)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Deployment not found",
+			})
+			return
+		}
+		// For old deployments, just delete from store (no containers to clean up)
+		if err := s.store.DeleteDeployment(c.Request.Context(), id); err != nil {
+			s.logger.Error("Failed to delete deployment", "id", id, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to delete deployment",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Deployment deleted successfully",
+			"id":      id,
+		})
+		return
+	}
+
+	// Clean up containers for new deployment type
+	for _, cont := range deployment.Containers {
+		if cont.ContainerID != "" {
+			s.logger.Info("Removing container", "container_id", cont.ContainerID, "app_name", deployment.AppName)
+			if err := s.dockerClient.ContainerRemove(c.Request.Context(), cont.ContainerID, container.RemoveOptions{Force: true}); err != nil {
+				s.logger.Error("Failed to remove container", "container_id", cont.ContainerID, "error", err)
+				// Continue with other containers even if one fails
+			}
+		}
+	}
+
+	// Delete deployment from store
+	if err := s.store.DeleteNewDeployment(c.Request.Context(), id); err != nil {
 		s.logger.Error("Failed to delete deployment", "id", id, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to delete deployment",
@@ -344,9 +383,11 @@ func (s *BaseEngine) deleteDeploymentHandler(c *gin.Context) {
 		return
 	}
 
+	s.logger.Info("Deployment deleted successfully", "id", id, "app_name", deployment.AppName, "containers_removed", len(deployment.Containers))
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Deployment deleted successfully",
-		"id":      id,
+		"message":            "Deployment deleted successfully",
+		"id":                 id,
+		"containers_removed": len(deployment.Containers),
 	})
 }
 
