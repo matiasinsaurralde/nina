@@ -18,6 +18,10 @@ import (
 	"github.com/matiasinsaurralde/nina/pkg/types"
 )
 
+const (
+	testAppName = "app1"
+)
+
 func TestIngress_DeploymentsCache(t *testing.T) {
 	// Create test config
 	cfg := &config.Config{
@@ -98,7 +102,7 @@ func TestIngress_FindDeploymentByAppName(t *testing.T) {
 	testDeployments := []*types.Deployment{
 		{
 			ID:      "1",
-			AppName: "app1",
+			AppName: testAppName,
 			Containers: []types.Container{
 				{ContainerID: "container1", Address: "localhost", Port: 8080},
 			},
@@ -118,12 +122,12 @@ func TestIngress_FindDeploymentByAppName(t *testing.T) {
 	ingress.deploymentsMux.Unlock()
 
 	// Test finding existing deployment
-	deployment = ingress.findDeploymentByAppName("app1")
+	deployment = ingress.findDeploymentByAppName(testAppName)
 	if deployment == nil {
-		t.Error("Expected to find deployment for 'app1', got nil")
+		t.Fatalf("Expected to find deployment for '%s', got nil", testAppName)
 	}
-	if deployment.AppName != "app1" {
-		t.Errorf("Expected app name 'app1', got '%s'", deployment.AppName)
+	if deployment.AppName != testAppName {
+		t.Errorf("Expected app name '%s', got '%s'", testAppName, deployment.AppName)
 	}
 
 	// Test finding non-existing deployment
@@ -155,7 +159,7 @@ func TestIngress_SelectRandomReplica(t *testing.T) {
 	// Test with deployment that has no containers
 	deployment := &types.Deployment{
 		ID:         "1",
-		AppName:    "app1",
+		AppName:    testAppName,
 		Containers: []types.Container{},
 	}
 
@@ -167,7 +171,7 @@ func TestIngress_SelectRandomReplica(t *testing.T) {
 	// Test with deployment that has containers
 	deployment = &types.Deployment{
 		ID:      "1",
-		AppName: "app1",
+		AppName: testAppName,
 		Containers: []types.Container{
 			{ContainerID: "container1", Address: "localhost", Port: 8080},
 			{ContainerID: "container2", Address: "localhost", Port: 8081},
@@ -212,7 +216,7 @@ func TestIngress_HandleRequest_UnknownApplication(t *testing.T) {
 	ingress := NewIngress(cfg, log, mockStore)
 
 	// Create test request
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	req.Host = "unknown-app"
 
 	// Create response recorder
@@ -280,8 +284,8 @@ func TestIngress_HandleRequest_NoReplicasAvailable(t *testing.T) {
 	ingress.deploymentsMux.Unlock()
 
 	// Create test request
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Host = "app1"
+	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req.Host = testAppName
 
 	// Create response recorder
 	w := httptest.NewRecorder()
@@ -315,7 +319,7 @@ func TestIngress_HandleRequest_NoReplicasAvailable(t *testing.T) {
 	}
 }
 
-func TestIngress_HandleRequest_ValidRouting(t *testing.T) {
+func TestIngress_HandleRequest_ValidRouting(t *testing.T) { //nolint: funlen
 	// Start a real backend server
 	backendCalled := false
 	var receivedContainerID string
@@ -357,7 +361,7 @@ func TestIngress_HandleRequest_ValidRouting(t *testing.T) {
 	testDeployments := []*types.Deployment{
 		{
 			ID:      "1",
-			AppName: "app1",
+			AppName: testAppName,
 			Containers: []types.Container{
 				{ContainerID: containerID, Address: backendAddr, Port: backendPort},
 			},
@@ -367,16 +371,20 @@ func TestIngress_HandleRequest_ValidRouting(t *testing.T) {
 	ingress.deployments = testDeployments
 	ingress.deploymentsMux.Unlock()
 
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Host = "app1"
-	req.Header.Set("Host", "app1")
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req.Host = testAppName
+	req.Header.Set("Host", testAppName)
 	w := httptest.NewRecorder()
 
 	ingress.handleRequest(w, req)
 
 	resp := w.Result()
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if !backendCalled {
 		t.Fatal("Expected backend to be called, but it was not")

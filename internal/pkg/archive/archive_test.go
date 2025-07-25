@@ -11,13 +11,17 @@ import (
 	"testing"
 )
 
-func TestCreateGzippedTarBase64(t *testing.T) {
+func TestCreateGzippedTarBase64(t *testing.T) { //nolint: gocyclo,funlen
 	// Create a temporary test directory
 	testDir, err := os.MkdirTemp("", "test-archive-*")
 	if err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
-	defer os.RemoveAll(testDir)
+	defer func() {
+		if removeErr := os.RemoveAll(testDir); removeErr != nil {
+			t.Logf("Failed to remove test directory: %v", removeErr)
+		}
+	}()
 
 	// Create some test files and directories
 	testFiles := map[string]string{
@@ -29,11 +33,11 @@ func TestCreateGzippedTarBase64(t *testing.T) {
 
 	for path, content := range testFiles {
 		fullPath := filepath.Join(testDir, path)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			t.Fatalf("Failed to create directory for %s: %v", path, err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(fullPath), 0o750); mkdirErr != nil {
+			t.Fatalf("Failed to create directory: %v", mkdirErr)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			t.Fatalf("Failed to create test file %s: %v", path, err)
+		if writeErr := os.WriteFile(fullPath, []byte(content), 0o600); writeErr != nil {
+			t.Fatalf("Failed to write file: %v", writeErr)
 		}
 	}
 
@@ -59,7 +63,11 @@ func TestCreateGzippedTarBase64(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create gzip reader: %v", err)
 	}
-	defer gzipReader.Close()
+	defer func() {
+		if err := gzipReader.Close(); err != nil {
+			t.Logf("Failed to close gzip reader: %v", err)
+		}
+	}()
 
 	// Create a tar reader
 	tarReader := tar.NewReader(gzipReader)
@@ -118,7 +126,11 @@ func TestCreateTempDirAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create source directory: %v", err)
 	}
-	defer os.RemoveAll(sourceDir)
+	defer func() {
+		if removeErr := os.RemoveAll(sourceDir); removeErr != nil {
+			t.Logf("Failed to remove source directory: %v", removeErr)
+		}
+	}()
 
 	// Create some test files and directories
 	testFiles := map[string]string{
@@ -130,11 +142,11 @@ func TestCreateTempDirAndCopy(t *testing.T) {
 
 	for path, content := range testFiles {
 		fullPath := filepath.Join(sourceDir, path)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			t.Fatalf("Failed to create directory for %s: %v", path, err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(fullPath), 0o750); mkdirErr != nil {
+			t.Fatalf("Failed to create directory: %v", mkdirErr)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			t.Fatalf("Failed to create test file %s: %v", path, err)
+		if writeErr := os.WriteFile(fullPath, []byte(content), 0o600); writeErr != nil {
+			t.Fatalf("Failed to write file: %v", writeErr)
 		}
 	}
 
@@ -143,7 +155,11 @@ func TestCreateTempDirAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTempDirAndCopy failed: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			t.Logf("Failed to remove temp directory: %v", removeErr)
+		}
+	}()
 
 	// Verify all expected files are present in temp directory
 	for path, expectedContent := range testFiles {
@@ -153,6 +169,7 @@ func TestCreateTempDirAndCopy(t *testing.T) {
 		}
 
 		fullPath := filepath.Join(tempDir, path)
+		//nolint: gosec
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			t.Errorf("Failed to read copied file %s: %v", path, err)
@@ -177,7 +194,11 @@ func TestCreateGzippedTarBase64WithEmptyDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
-	defer os.RemoveAll(testDir)
+	defer func() {
+		if removeErr := os.RemoveAll(testDir); removeErr != nil {
+			t.Logf("Failed to remove test directory: %v", removeErr)
+		}
+	}()
 
 	// Create the gzipped tar base64
 	base64Data, err := CreateGzippedTarBase64(testDir)

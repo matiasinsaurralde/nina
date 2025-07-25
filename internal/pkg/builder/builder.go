@@ -1,8 +1,10 @@
+// Package builder provides functionality for building and packaging applications.
 package builder
 
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/docker/docker/client"
 	"github.com/matiasinsaurralde/nina/pkg/config"
@@ -32,12 +34,15 @@ type BaseBuilder struct {
 	dockerClient *client.Client // Docker Engine API client (private)
 }
 
+// Init initializes the builder with configuration and logger.
 func (b *BaseBuilder) Init(ctx context.Context, cfg *config.Config, log *logger.Logger) error {
 	b.cfg = cfg
 	b.logger = log
 	b.buildpacks = make(map[string]Buildpack)
 	for _, buildpack := range availableBuildpacks {
-		buildpack.SetConfig(ctx, cfg)
+		if err := buildpack.SetConfig(ctx, cfg); err != nil {
+			return fmt.Errorf("failed to set buildpack config: %w", err)
+		}
 		buildpack.SetDockerClient(b.dockerClient)
 		b.buildpacks[buildpack.Name()] = buildpack
 	}
@@ -45,7 +50,8 @@ func (b *BaseBuilder) Init(ctx context.Context, cfg *config.Config, log *logger.
 	return nil
 }
 
-func (b *BaseBuilder) ExtractBundle(ctx context.Context, req *types.BuildRequest) (*Bundle, error) {
+// ExtractBundle extracts a bundle from the given request.
+func (b *BaseBuilder) ExtractBundle(_ context.Context, req *types.BuildRequest) (*Bundle, error) {
 	b.logger.Info("Extracting bundle", "app_name", req.AppName, "commit_hash", req.CommitHash)
 	bundle, err := NewBundle(req, b.logger)
 	if err != nil {
@@ -78,19 +84,22 @@ func (b *BaseBuilder) MatchBuildpack(ctx context.Context, req *types.BuildReques
 	return nil, errors.New("no buildpack matched")
 }
 
+// Build builds the application using the specified buildpack.
 func (b *BaseBuilder) Build(ctx context.Context, bundle *Bundle, buildpack Buildpack) (*types.DeploymentImage, error) {
 	deploymentImage, err := buildpack.Build(ctx, bundle)
 	if err != nil {
 		b.logger.Error("Failed to build", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to build with buildpack: %w", err)
 	}
 	return deploymentImage, nil
 }
 
+// SetDockerClient sets the Docker client for the builder.
 func (b *BaseBuilder) SetDockerClient(cli *client.Client) {
 	b.dockerClient = cli
 }
 
+// GetDockerClient returns the Docker client.
 func (b *BaseBuilder) GetDockerClient() *client.Client {
 	return b.dockerClient
 }

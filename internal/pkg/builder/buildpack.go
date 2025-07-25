@@ -1,3 +1,4 @@
+// Package builder provides functionality for building and packaging applications.
 package builder
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/matiasinsaurralde/nina/pkg/types"
 )
 
+// Buildpack defines the interface for buildpacks.
 type Buildpack interface {
 	// Build builds the project:
 	Build(ctx context.Context, bundle *Bundle) (*types.DeploymentImage, error)
@@ -21,24 +23,29 @@ type Buildpack interface {
 	GetDockerClient() *client.Client
 }
 
+// BaseBuildpack provides common functionality for buildpacks.
 type BaseBuildpack struct {
 	Config       *config.Config
 	DockerClient *client.Client
 }
 
-func (b *BaseBuildpack) SetConfig(ctx context.Context, cfg *config.Config) error {
+// SetConfig sets the configuration.
+func (b *BaseBuildpack) SetConfig(_ context.Context, cfg *config.Config) error {
 	b.Config = cfg
 	return nil
 }
 
+// GetConfig returns the configuration.
 func (b *BaseBuildpack) GetConfig() *config.Config {
 	return b.Config
 }
 
+// SetDockerClient sets the Docker client.
 func (b *BaseBuildpack) SetDockerClient(cli *client.Client) {
 	b.DockerClient = cli
 }
 
+// GetDockerClient returns the Docker client.
 func (b *BaseBuildpack) GetDockerClient() *client.Client {
 	return b.DockerClient
 }

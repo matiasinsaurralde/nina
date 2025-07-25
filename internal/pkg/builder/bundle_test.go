@@ -11,7 +11,7 @@ import (
 	"github.com/matiasinsaurralde/nina/pkg/types"
 )
 
-func TestNewBundleWithLogging(t *testing.T) {
+func TestNewBundleWithLogging(t *testing.T) { //nolint: funlen
 	// Create a test logger
 	log := logger.New(logger.LevelDebug, "text")
 
@@ -24,22 +24,31 @@ func TestNewBundleWithLogging(t *testing.T) {
 	content := []byte("test content")
 	header := &tar.Header{
 		Name: "test.txt",
-		Mode: 0644,
+		Mode: 0o644,
 		Size: int64(len(content)),
 	}
-	tw.WriteHeader(header)
-	tw.Write(content)
+	if err := tw.WriteHeader(header); err != nil {
+		t.Fatalf("Failed to write tar header: %v", err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatalf("Failed to write tar content: %v", err)
+	}
 
 	// Add a test directory
 	header = &tar.Header{
 		Name:     "testdir/",
 		Typeflag: tar.TypeDir,
-		Mode:     0755,
+		Mode:     0o755,
 	}
-	tw.WriteHeader(header)
-
-	tw.Close()
-	gw.Close()
+	if err := tw.WriteHeader(header); err != nil {
+		t.Fatalf("Failed to write tar header: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Failed to close tar writer: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("Failed to close gzip writer: %v", err)
+	}
 
 	// Encode as base64
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
@@ -59,7 +68,11 @@ func TestNewBundleWithLogging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create bundle: %v", err)
 	}
-	defer bundle.Cleanup()
+	defer func() {
+		if err := bundle.Cleanup(); err != nil {
+			t.Logf("Failed to cleanup bundle: %v", err)
+		}
+	}()
 
 	// Verify bundle was created
 	if bundle.GetTempDir() == "" {

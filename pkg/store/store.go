@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -160,17 +161,15 @@ func (s *Store) GetDeployment(ctx context.Context, id string) (*Deployment, erro
 // GetNewDeployment retrieves a deployment by app name
 func (s *Store) GetNewDeployment(ctx context.Context, appName string) (*types.Deployment, error) {
 	key := fmt.Sprintf("nina-deployment-%s", appName)
-	data, err := s.client.Get(ctx, key).Bytes()
+
+	data, err := s.getItemByKey(ctx, key, "deployment")
 	if err != nil {
-		if err == redis.Nil {
-			return nil, fmt.Errorf("deployment not found: %s", appName)
-		}
-		return nil, fmt.Errorf("failed to get deployment: %w", err)
+		return nil, err
 	}
 
 	var deployment types.Deployment
-	if err := json.Unmarshal(data, &deployment); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deployment: %w", err)
+	if err := s.unmarshalItem(data, &deployment, "deployment"); err != nil {
+		return nil, err
 	}
 
 	return &deployment, nil
@@ -191,7 +190,7 @@ func (s *Store) GetDeploymentByName(ctx context.Context, name string) (*Deployme
 }
 
 // UpdateDeploymentStatus updates the status of a deployment
-func (s *Store) UpdateDeploymentStatus(ctx context.Context, id string, status string) error {
+func (s *Store) UpdateDeploymentStatus(ctx context.Context, id, status string) error {
 	deployment, err := s.GetDeployment(ctx, id)
 	if err != nil {
 		return err
@@ -239,7 +238,9 @@ func (s *Store) UpdateNewDeploymentStatus(ctx context.Context, appName string, s
 }
 
 // UpdateNewDeploymentWithContainers updates a deployment with container information
-func (s *Store) UpdateNewDeploymentWithContainers(ctx context.Context, appName string, containers []types.Container, status types.DeploymentStatus) error {
+func (s *Store) UpdateNewDeploymentWithContainers(ctx context.Context, appName string, containers []types.Container,
+	status types.DeploymentStatus,
+) error {
 	deployment, err := s.GetNewDeployment(ctx, appName)
 	if err != nil {
 		return err
@@ -337,46 +338,40 @@ func (s *Store) ListDeployments(ctx context.Context) ([]*Deployment, error) {
 
 // ListNewDeployments lists all new deployments
 func (s *Store) ListNewDeployments(ctx context.Context) ([]*types.Deployment, error) {
-	pattern := "nina-deployment-*"
-	keys, err := s.client.Keys(ctx, pattern).Result()
+	items, err := s.listItems(ctx, "nina-deployment-*", "deployment", &types.Deployment{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get deployment keys: %w", err)
+		return nil, err
+	}
+	return items.([]*types.Deployment), nil
+}
+
+// getItemByKeyAndUnmarshal is a helper function to get and unmarshal a single item by key
+func (s *Store) getItemByKeyAndUnmarshal(ctx context.Context, key string, item interface{}, itemType string) error {
+	data, err := s.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return redis.Nil
+		}
+		return fmt.Errorf("failed to get %s: %w", itemType, err)
 	}
 
-	deployments := make([]*types.Deployment, 0, len(keys))
-	for _, key := range keys {
-		data, err := s.client.Get(ctx, key).Bytes()
-		if err != nil {
-			s.logger.Warn("Failed to get deployment data", "key", key, "error", err)
-			continue
-		}
-
-		var deployment types.Deployment
-		if err := json.Unmarshal(data, &deployment); err != nil {
-			s.logger.Warn("Failed to unmarshal deployment", "key", key, "error", err)
-			continue
-		}
-
-		deployments = append(deployments, &deployment)
+	if err := json.Unmarshal(data, item); err != nil {
+		return fmt.Errorf("failed to unmarshal %s: %w", itemType, err)
 	}
 
-	return deployments, nil
+	return nil
 }
 
 // ListNewDeploymentsByAppName lists deployments by app name
 func (s *Store) ListNewDeploymentsByAppName(ctx context.Context, appName string) ([]*types.Deployment, error) {
 	key := fmt.Sprintf("nina-deployment-%s", appName)
-	data, err := s.client.Get(ctx, key).Bytes()
-	if err != nil {
+	var deployment types.Deployment
+
+	if err := s.getItemByKeyAndUnmarshal(ctx, key, &deployment, "deployment"); err != nil {
 		if err == redis.Nil {
 			return []*types.Deployment{}, nil
 		}
-		return nil, fmt.Errorf("failed to get deployment: %w", err)
-	}
-
-	var deployment types.Deployment
-	if err := json.Unmarshal(data, &deployment); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deployment: %w", err)
+		return nil, err
 	}
 
 	return []*types.Deployment{&deployment}, nil
@@ -418,17 +413,15 @@ func (s *Store) CreateBuild(ctx context.Context, req *types.BuildRequest) (*type
 // GetBuild retrieves a build by commit hash
 func (s *Store) GetBuild(ctx context.Context, commitHash string) (*types.Build, error) {
 	key := fmt.Sprintf("nina-build-%s", commitHash)
-	data, err := s.client.Get(ctx, key).Bytes()
+
+	data, err := s.getItemByKey(ctx, key, "build")
 	if err != nil {
-		if err == redis.Nil {
-			return nil, fmt.Errorf("build not found: %s", commitHash)
-		}
-		return nil, fmt.Errorf("failed to get build: %w", err)
+		return nil, err
 	}
 
 	var build types.Build
-	if err := json.Unmarshal(data, &build); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal build: %w", err)
+	if err := s.unmarshalItem(data, &build, "build"); err != nil {
+		return nil, err
 	}
 
 	return &build, nil
@@ -461,7 +454,9 @@ func (s *Store) UpdateBuildStatus(ctx context.Context, commitHash string, status
 }
 
 // UpdateBuildWithImage updates a build with image information
-func (s *Store) UpdateBuildWithImage(ctx context.Context, commitHash string, status types.BuildStatus, imageTag, imageID string, size int64) error {
+func (s *Store) UpdateBuildWithImage(ctx context.Context, commitHash string, status types.BuildStatus, imageTag, imageID string,
+	size int64,
+) error {
 	build, err := s.GetBuild(ctx, commitHash)
 	if err != nil {
 		return err
@@ -491,60 +486,36 @@ func (s *Store) UpdateBuildWithImage(ctx context.Context, commitHash string, sta
 
 // ListBuilds retrieves all builds
 func (s *Store) ListBuilds(ctx context.Context) ([]*types.Build, error) {
-	pattern := "nina-build-*"
-	keys, err := s.client.Keys(ctx, pattern).Result()
+	items, err := s.listItems(ctx, "nina-build-*", "build", &types.Build{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get build keys: %w", err)
+		return nil, err
 	}
-
-	builds := make([]*types.Build, 0, len(keys))
-	for _, key := range keys {
-		data, err := s.client.Get(ctx, key).Bytes()
-		if err != nil {
-			s.logger.Warn("Failed to get build data", "key", key, "error", err)
-			continue
-		}
-
-		var build types.Build
-		if err := json.Unmarshal(data, &build); err != nil {
-			s.logger.Warn("Failed to unmarshal build", "key", key, "error", err)
-			continue
-		}
-
-		builds = append(builds, &build)
-	}
-
-	return builds, nil
+	return items.([]*types.Build), nil
 }
 
 // ListBuildsByCommitHash retrieves builds by commit hash
 func (s *Store) ListBuildsByCommitHash(ctx context.Context, commitHash string) ([]*types.Build, error) {
 	key := fmt.Sprintf("nina-build-%s", commitHash)
-	data, err := s.client.Get(ctx, key).Bytes()
-	if err != nil {
+	var build types.Build
+
+	if err := s.getItemByKeyAndUnmarshal(ctx, key, &build, "build"); err != nil {
 		if err == redis.Nil {
 			return []*types.Build{}, nil
 		}
-		return nil, fmt.Errorf("failed to get build: %w", err)
-	}
-
-	var build types.Build
-	if err := json.Unmarshal(data, &build); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal build: %w", err)
+		return nil, err
 	}
 
 	return []*types.Build{&build}, nil
 }
 
 // DeleteBuilds deletes builds by app name or commit hash
-func (s *Store) DeleteBuilds(ctx context.Context, id string) ([]string, int, error) {
+func (s *Store) DeleteBuilds(ctx context.Context, id string) (deletedKeys []string, count int, err error) {
 	pattern := "nina-build-*"
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get build keys: %w", err)
 	}
 
-	var deletedKeys []string
 	for _, key := range keys {
 		data, err := s.client.Get(ctx, key).Bytes()
 		if err != nil {
@@ -569,4 +540,65 @@ func (s *Store) DeleteBuilds(ctx context.Context, id string) ([]string, int, err
 	}
 
 	return deletedKeys, len(deletedKeys), nil
+}
+
+// getItemByKey is a helper function to get an item by key
+func (s *Store) getItemByKey(ctx context.Context, key, itemType string) ([]byte, error) {
+	data, err := s.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, fmt.Errorf("%s not found: %s", itemType, key)
+		}
+		return nil, fmt.Errorf("failed to get %s: %w", itemType, err)
+	}
+	return data, nil
+}
+
+// unmarshalItem is a helper function to unmarshal an item
+func (s *Store) unmarshalItem(data []byte, item interface{}, itemType string) error {
+	if err := json.Unmarshal(data, item); err != nil {
+		return fmt.Errorf("failed to unmarshal %s: %w", itemType, err)
+	}
+	return nil
+}
+
+// listItemsByPattern is a helper function to list items by pattern
+func (s *Store) listItemsByPattern(ctx context.Context, pattern, itemType string) ([]string, error) {
+	keys, err := s.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s keys: %w", itemType, err)
+	}
+	return keys, nil
+}
+
+// listItems is a helper function to list items by pattern
+func (s *Store) listItems(ctx context.Context, pattern, itemType string, itemStruct interface{}) (interface{}, error) {
+	keys, err := s.listItemsByPattern(ctx, pattern, itemType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a slice of the appropriate type using reflection
+	sliceType := reflect.SliceOf(reflect.TypeOf(itemStruct))
+	items := reflect.MakeSlice(sliceType, 0, len(keys))
+
+	for _, key := range keys {
+		data, err := s.client.Get(ctx, key).Bytes()
+		if err != nil {
+			s.logger.Warn(fmt.Sprintf("Failed to get %s data", itemType), "key", key, "error", err)
+			continue
+		}
+
+		// Create a new instance of the item type
+		item := reflect.New(reflect.TypeOf(itemStruct).Elem()).Interface()
+		if err := s.unmarshalItem(data, item, itemType); err != nil {
+			s.logger.Warn(fmt.Sprintf("Failed to unmarshal %s", itemType), "key", key, "error", err)
+			continue
+		}
+
+		// Append the item to the slice
+		items = reflect.Append(items, reflect.ValueOf(item))
+	}
+
+	return items.Interface(), nil
 }

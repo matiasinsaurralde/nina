@@ -303,12 +303,12 @@ func newColoredTextHandler(w io.Writer, level slog.Level) *coloredTextHandler {
 }
 
 // Enabled implements slog.Handler.Enabled
-func (h *coloredTextHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return level >= h.level
+func (h *coloredTextHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= slog.LevelInfo
 }
 
 // Handle implements slog.Handler.Handle
-func (h *coloredTextHandler) Handle(ctx context.Context, r slog.Record) error {
+func (h *coloredTextHandler) Handle(_ context.Context, r slog.Record) error { //nolint: gocritic
 	// Format the record without escaping the message
 	var buf strings.Builder
 
@@ -331,19 +331,21 @@ func (h *coloredTextHandler) Handle(ctx context.Context, r slog.Record) error {
 	output := strings.TrimSpace(buf.String()) + "\n"
 
 	// Write to the underlying writer
-	_, err := h.writer.Write([]byte(output))
-	return err
+	if _, err := h.writer.Write([]byte(output)); err != nil {
+		return fmt.Errorf("failed to write to handler: %w", err)
+	}
+	return nil
 }
 
 // WithAttrs implements slog.Handler.WithAttrs
-func (h *coloredTextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *coloredTextHandler) WithAttrs(_ []slog.Attr) slog.Handler {
 	// For simplicity, return the same handler
 	// In a full implementation, you'd want to store the attrs
 	return h
 }
 
 // WithGroup implements slog.Handler.WithGroup
-func (h *coloredTextHandler) WithGroup(name string) slog.Handler {
+func (h *coloredTextHandler) WithGroup(_ string) slog.Handler {
 	// For simplicity, return the same handler
 	// In a full implementation, you'd want to handle groups
 	return h

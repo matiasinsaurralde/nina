@@ -4,10 +4,10 @@ package types
 import "time"
 
 // DeploymentStatus represents the status of a deployment.
-type (
-	DeploymentStatus string
-	BuildStatus      string
-)
+type DeploymentStatus string
+
+// BuildStatus represents the status of a build.
+type BuildStatus string
 
 const (
 	// DeploymentStatusUnavailable represents a deployment that is unavailable.
@@ -54,6 +54,7 @@ type Deployment struct {
 	UpdatedAt     time.Time        `json:"updated_at"`
 }
 
+// DeploymentImage represents a deployment image.
 type DeploymentImage struct {
 	ImageTag string `json:"image_tag"`
 	ImageID  string `json:"image_id"`
@@ -79,6 +80,7 @@ type BuildRequest struct {
 	BundleContents string `json:"bundle_content"`
 }
 
+// Build represents a build.
 type Build struct {
 	CreatedAt     time.Time   `json:"created_at"`
 	FinishedAt    time.Time   `json:"finished_at"`

@@ -5,11 +5,11 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math/big"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
-
-	"math/big"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -197,6 +197,43 @@ func (s *BaseEngine) provisionHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, deployment)
 }
 
+// validateDeploymentRequest validates the deployment request
+func (s *BaseEngine) validateDeploymentRequest(req *types.DeploymentRequest) error {
+	if req.AppName == "" || req.CommitHash == "" {
+		return fmt.Errorf("app name and commit hash are required")
+	}
+	return nil
+}
+
+// validateBuildForDeployment validates that the build exists and is ready for deployment
+func (s *BaseEngine) validateBuildForDeployment(ctx context.Context, commitHash string) (*types.Build, error) {
+	build, err := s.store.GetBuild(ctx, commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("build not found for the given commit hash: %w", err)
+	}
+
+	if build.Status != types.BuildStatusBuilt {
+		return nil, fmt.Errorf("build is not ready for deployment (status: %s)", build.Status)
+	}
+
+	return build, nil
+}
+
+// createDeploymentRecord creates a deployment record in the store
+func (s *BaseEngine) createDeploymentRecord(ctx context.Context, req *types.DeploymentRequest) (*types.Deployment, error) {
+	deployment, err := s.store.CreateNewDeployment(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deployment record: %w", err)
+	}
+
+	// Update deployment status to deploying
+	if err := s.store.UpdateNewDeploymentStatus(ctx, req.AppName, types.DeploymentStatusDeploying); err != nil {
+		s.logger.Error("Failed to update deployment status to deploying", "error", err)
+	}
+
+	return deployment, nil
+}
+
 // deployHandler handles deployment requests
 func (s *BaseEngine) deployHandler(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
@@ -212,47 +249,34 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 	}
 
 	// Validate request
-	if req.AppName == "" || req.CommitHash == "" {
-		s.logger.Error("Missing required fields in deployment request", "app_name", req.AppName, "commit_hash", req.CommitHash)
+	if err := s.validateDeploymentRequest(&req); err != nil {
+		s.logger.Error("Invalid deployment request", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "App name and commit hash are required",
+			"error": err.Error(),
 		})
 		return
 	}
 
 	s.logger.Info("Processing deployment request", "app_name", req.AppName, "commit_hash", req.CommitHash, "replicas", req.Replicas)
 
-	// Check if build exists and is built
-	build, err := s.store.GetBuild(ctx, req.CommitHash)
+	// Validate build
+	build, err := s.validateBuildForDeployment(ctx, req.CommitHash)
 	if err != nil {
-		s.logger.Error("Build not found", "commit_hash", req.CommitHash, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Build not found for the given commit hash",
-		})
-		return
-	}
-
-	if build.Status != types.BuildStatusBuilt {
-		s.logger.Error("Build not ready", "commit_hash", req.CommitHash, "status", build.Status)
+		s.logger.Error("Build validation failed", "commit_hash", req.CommitHash, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Build is not ready for deployment",
+			"error": err.Error(),
 		})
 		return
 	}
 
 	// Create deployment record
-	deployment, err := s.store.CreateNewDeployment(ctx, &req)
+	deployment, err := s.createDeploymentRecord(ctx, &req)
 	if err != nil {
 		s.logger.Error("Failed to create deployment record", "app_name", req.AppName, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to create deployment record",
+			"error": err.Error(),
 		})
 		return
-	}
-
-	// Update deployment status to deploying
-	if err := s.store.UpdateNewDeploymentStatus(ctx, req.AppName, types.DeploymentStatusDeploying); err != nil {
-		s.logger.Error("Failed to update deployment status to deploying", "error", err)
 	}
 
 	// Deploy containers in background
@@ -269,6 +293,88 @@ func (s *BaseEngine) deployHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, deployment)
 }
 
+// createContainerConfig creates the container configuration
+func (s *BaseEngine) createContainerConfig(imageTag string, containerPort int) *container.Config {
+	return &container.Config{
+		Image: imageTag,
+		Env: []string{
+			fmt.Sprintf("PORT=%d", containerPort),
+		},
+		ExposedPorts: nat.PortSet{
+			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): struct{}{},
+		},
+	}
+}
+
+// createHostConfig creates the host configuration for port binding
+func (s *BaseEngine) createHostConfig(containerPort int) *container.HostConfig {
+	return &container.HostConfig{
+		PortBindings: nat.PortMap{
+			nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
+				{
+					HostIP:   "0.0.0.0",
+					HostPort: "", // Empty string = Docker assigns random available port
+				},
+			},
+		},
+	}
+}
+
+// createAndStartContainer creates and starts a single container
+func (s *BaseEngine) createAndStartContainer(
+	ctx context.Context,
+	appName, imageTag string,
+	containerPort, replica int,
+) (*types.Container, error) {
+	s.logger.Info("Creating container", "replica", replica, "app_name", appName)
+
+	containerConfig := s.createContainerConfig(imageTag, containerPort)
+	hostConfig := s.createHostConfig(containerPort)
+
+	// Create container with unique name
+	containerName := s.generateUniqueContainerName(appName, replica)
+	resp, err := s.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create container %d: %w", replica, err)
+	}
+
+	containerID := resp.ID
+	s.logger.Info("Container created", "container_id", containerID, "app_name", appName, "replica", replica)
+
+	// Start container
+	if startErr := s.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); startErr != nil {
+		return nil, fmt.Errorf("failed to start container %d: %w", replica, startErr)
+	}
+
+	// Get the actual assigned host port by inspecting the container
+	containerInfo, err := s.dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container %d: %w", replica, err)
+	}
+
+	// Extract the assigned host port
+	var hostPort int
+	if bindings, exists := containerInfo.NetworkSettings.Ports[nat.Port(fmt.Sprintf("%d/tcp", containerPort))]; exists && len(bindings) > 0 {
+		hostPort, _ = strconv.Atoi(bindings[0].HostPort)
+		s.logger.Info("Container port mapping", "container_id", containerID, "container_port", containerPort,
+			"host_port", hostPort, "replica", replica)
+	} else {
+		return nil, fmt.Errorf("failed to get assigned host port for container %s", containerID)
+	}
+
+	s.logger.Info("Container started", "container_id", containerID, "app_name", appName, "host_port", hostPort, "replica", replica)
+
+	// Create container info with the actual assigned port
+	containerData := &types.Container{
+		ContainerID: containerID,
+		ImageTag:    imageTag,
+		Address:     "localhost",
+		Port:        hostPort, // Use the actual assigned host port
+	}
+
+	return containerData, nil
+}
+
 // deployContainers deploys containers for the given app
 func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag string, replicas int) error {
 	s.logger.Info("Starting container deployment", "app_name", appName, "image_tag", imageTag, "replicas", replicas)
@@ -280,71 +386,12 @@ func (s *BaseEngine) deployContainers(ctx context.Context, appName, imageTag str
 
 	// Create multiple containers based on replicas count
 	for i := 0; i < replicas; i++ {
-		s.logger.Info("Creating container", "replica", i+1, "total_replicas", replicas)
-
-		// Create container configuration
-		containerConfig := &container.Config{
-			Image: imageTag,
-			Env: []string{
-				fmt.Sprintf("PORT=%d", containerPort),
-			},
-			ExposedPorts: nat.PortSet{
-				nat.Port(fmt.Sprintf("%d/tcp", containerPort)): struct{}{},
-			},
-		}
-
-		hostConfig := &container.HostConfig{
-			PortBindings: nat.PortMap{
-				nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
-					{
-						HostIP:   "0.0.0.0",
-						HostPort: "", // Empty string = Docker assigns random available port
-					},
-				},
-			},
-		}
-
-		// Create container with unique name
-		containerName := s.generateUniqueContainerName(appName, i+1)
-		resp, err := s.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+		containerData, err := s.createAndStartContainer(ctx, appName, imageTag, containerPort, i+1)
 		if err != nil {
-			return fmt.Errorf("failed to create container %d: %w", i+1, err)
+			return err
 		}
 
-		containerID := resp.ID
-		s.logger.Info("Container created", "container_id", containerID, "app_name", appName, "replica", i+1)
-
-		// Start container
-		if err := s.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-			return fmt.Errorf("failed to start container %d: %w", i+1, err)
-		}
-
-		// Get the actual assigned host port by inspecting the container
-		containerInfo, err := s.dockerClient.ContainerInspect(ctx, containerID)
-		if err != nil {
-			return fmt.Errorf("failed to inspect container %d: %w", i+1, err)
-		}
-
-		// Extract the assigned host port
-		var hostPort int
-		if bindings, exists := containerInfo.NetworkSettings.Ports[nat.Port(fmt.Sprintf("%d/tcp", containerPort))]; exists && len(bindings) > 0 {
-			hostPort, _ = strconv.Atoi(bindings[0].HostPort)
-			s.logger.Info("Container port mapping", "container_id", containerID, "container_port", containerPort, "host_port", hostPort, "replica", i+1)
-		} else {
-			return fmt.Errorf("failed to get assigned host port for container %s", containerID)
-		}
-
-		s.logger.Info("Container started", "container_id", containerID, "app_name", appName, "host_port", hostPort, "replica", i+1)
-
-		// Create container info with the actual assigned port
-		container := types.Container{
-			ContainerID: containerID,
-			ImageTag:    imageTag,
-			Address:     "localhost",
-			Port:        hostPort, // Use the actual assigned host port
-		}
-
-		containers = append(containers, container)
+		containers = append(containers, *containerData)
 		s.logger.Info("Container added to list", "replica", i+1, "total_containers", len(containers))
 	}
 
@@ -432,139 +479,88 @@ func (s *BaseEngine) deleteDeploymentHandler(c *gin.Context) {
 	})
 }
 
+// getDeploymentWrapper wraps the store.GetDeployment function to match the interface
+func (s *BaseEngine) getDeploymentWrapper(ctx context.Context, id string) (interface{}, error) {
+	deployment, err := s.store.GetDeployment(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get deployment: %w", err)
+	}
+	return deployment, nil
+}
+
 // getDeploymentHandler handles deployment retrieval requests
 func (s *BaseEngine) getDeploymentHandler(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Deployment ID is required",
-		})
-		return
-	}
-
-	deployment, err := s.store.GetDeployment(c.Request.Context(), id)
-	if err != nil {
-		s.logger.Error("Failed to get deployment", "id", id, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Deployment not found",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, deployment)
+	s.handleGetByID(c, s.getDeploymentWrapper, "deployment")
 }
 
 // getDeploymentStatusHandler handles deployment status requests
 func (s *BaseEngine) getDeploymentStatusHandler(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Deployment ID is required",
-		})
-		return
-	}
+	s.handleGetByID(c, s.getDeploymentWrapper, "deployment")
+}
 
-	deployment, err := s.store.GetDeployment(c.Request.Context(), id)
+// listDeploymentsWrapper wraps the store.ListNewDeployments function
+func (s *BaseEngine) listDeploymentsWrapper(ctx context.Context) (interface{}, error) {
+	deployments, err := s.store.ListNewDeployments(ctx)
 	if err != nil {
-		s.logger.Error("Failed to get deployment", "id", id, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Deployment not found",
-		})
-		return
+		return nil, fmt.Errorf("failed to list deployments: %w", err)
 	}
+	return deployments, nil
+}
 
-	c.JSON(http.StatusOK, deployment)
+// listDeploymentsByAppNameWrapper wraps the store.ListNewDeploymentsByAppName function
+func (s *BaseEngine) listDeploymentsByAppNameWrapper(ctx context.Context, appName string) (interface{}, error) {
+	deployments, err := s.store.ListNewDeploymentsByAppName(ctx, appName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deployments by app name: %w", err)
+	}
+	return deployments, nil
 }
 
 // listDeploymentsHandler handles deployment listing requests
 func (s *BaseEngine) listDeploymentsHandler(c *gin.Context) {
-	appName := c.Query("app_name")
-
-	var deployments []*types.Deployment
-	var err error
-
-	if appName != "" {
-		// Get deployments by app name
-		deployments, err = s.store.ListNewDeploymentsByAppName(c.Request.Context(), appName)
-	} else {
-		// Get all deployments
-		deployments, err = s.store.ListNewDeployments(c.Request.Context())
-	}
-
-	if err != nil {
-		s.logger.Error("Failed to list deployments", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to list deployments",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"deployments": deployments,
-		"count":       len(deployments),
-	})
+	s.handleList(c, s.listDeploymentsWrapper, s.listDeploymentsByAppNameWrapper, "app_name", "deployments")
 }
 
-// buildHandler handles build requests
-func (s *BaseEngine) buildHandler(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
-	defer cancel()
-	var req types.BuildRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		s.logger.Error("Invalid build request body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request body",
-		})
-		return
-	}
-
-	// Validate request
+// validateBuildRequest validates the build request
+func (s *BaseEngine) validateBuildRequest(req *types.BuildRequest) error {
 	if req.AppName == "" || req.BundleContents == "" {
-		s.logger.Error("Missing required fields in build request", "app_name", req.AppName)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "App name and bundle contents are required",
-		})
-		return
+		return fmt.Errorf("app name and bundle contents are required")
 	}
+	return nil
+}
 
-	s.logger.Info("Processing build request", "app_name", req.AppName, "commit_hash", req.CommitHash)
-
-	// Create build record in Redis
-	_, buildErr := s.store.CreateBuild(ctx, &req)
-	if buildErr != nil {
-		s.logger.Error("Failed to create build record", "app_name", req.AppName, "error", buildErr)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to create build record",
-		})
-		return
+// createBuildRecord creates a build record in the store
+func (s *BaseEngine) createBuildRecord(ctx context.Context, req *types.BuildRequest) error {
+	_, err := s.store.CreateBuild(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to create build record", "app_name", req.AppName, "error", err)
+		return fmt.Errorf("failed to create build record: %w", err)
 	}
+	return nil
+}
 
+// extractAndMatchBundle extracts the bundle and matches it with a buildpack
+func (s *BaseEngine) extractAndMatchBundle(ctx context.Context, req *types.BuildRequest) (*builder.Bundle, builder.Buildpack, error) {
 	// Extract bundle
-	bundle, err := s.builder.ExtractBundle(ctx, &req)
+	bundle, err := s.builder.ExtractBundle(ctx, req)
 	if err != nil {
 		s.logger.Error("Failed to extract bundle", "app_name", req.AppName, "error", err)
 		// Update build status to failed
 		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
 			s.logger.Error("Failed to update build status to failed", "error", updateErr)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to extract bundle",
-		})
-		return
+		return nil, nil, fmt.Errorf("failed to extract bundle: %w", err)
 	}
 
 	// Match buildpack
-	buildpack, err := s.builder.MatchBuildpack(ctx, &req)
+	buildpack, err := s.builder.MatchBuildpack(ctx, req)
 	if err != nil {
 		s.logger.Error("Failed to match buildpack", "app_name", req.AppName, "error", err)
 		// Update build status to failed
 		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
 			s.logger.Error("Failed to update build status to failed", "error", updateErr)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to match buildpack",
-		})
-		return
+		return nil, nil, fmt.Errorf("failed to match buildpack: %w", err)
 	}
 
 	if buildpack == nil {
@@ -573,17 +569,23 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
 			s.logger.Error("Failed to update build status to failed", "error", updateErr)
 		}
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "No matching buildpack found for this project type",
-		})
-		return
+		return nil, nil, fmt.Errorf("no matching buildpack found for this project type")
 	}
 
 	s.logger.Info("Buildpack matched", "app_name", req.AppName, "buildpack", buildpack.Name())
+	return bundle, buildpack, nil
+}
 
+// buildProject builds the project using the matched buildpack
+func (s *BaseEngine) buildProject(
+	ctx context.Context,
+	req *types.BuildRequest,
+	bundle *builder.Bundle,
+	buildpack builder.Buildpack,
+) (*types.DeploymentImage, error) {
 	// Update build status to building
-	if err := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusBuilding); err != nil {
-		s.logger.Error("Failed to update build status to building", "error", err)
+	if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusBuilding); updateErr != nil {
+		s.logger.Error("Failed to update build status to building", "error", updateErr)
 	}
 
 	// Build the project
@@ -594,14 +596,12 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
 			s.logger.Error("Failed to update build status to failed", "error", updateErr)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to build project",
-		})
-		return
+		return nil, fmt.Errorf("failed to build project: %w", err)
 	}
 
 	// Update build with image information and status to built
-	if err := s.store.UpdateBuildWithImage(ctx, req.CommitHash, types.BuildStatusBuilt, deployment.ImageTag, deployment.ImageID, deployment.Size); err != nil {
+	if err := s.store.UpdateBuildWithImage(ctx, req.CommitHash, types.BuildStatusBuilt, deployment.ImageTag,
+		deployment.ImageID, deployment.Size); err != nil {
 		s.logger.Error("Failed to update build status to built", "error", err)
 	}
 
@@ -612,36 +612,84 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 		s.logger.Warn("Failed to cleanup bundle", "app_name", req.AppName, "error", err)
 	}
 
-	c.JSON(http.StatusCreated, deployment)
+	return deployment, nil
 }
 
-// listBuildsHandler handles build listing requests
-func (s *BaseEngine) listBuildsHandler(c *gin.Context) {
-	commitHash := c.Query("commit_hash")
+// buildHandler handles build requests
+func (s *BaseEngine) buildHandler(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
 
-	var builds []*types.Build
-	var err error
-
-	if commitHash != "" {
-		// Get builds by commit hash
-		builds, err = s.store.ListBuildsByCommitHash(c.Request.Context(), commitHash)
-	} else {
-		// Get all builds
-		builds, err = s.store.ListBuilds(c.Request.Context())
-	}
-
-	if err != nil {
-		s.logger.Error("Failed to list builds", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to list builds",
+	var req types.BuildRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		s.logger.Error("Invalid build request body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"builds": builds,
-		"count":  len(builds),
-	})
+	// Validate request
+	if err := s.validateBuildRequest(&req); err != nil {
+		s.logger.Error("Invalid build request", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	s.logger.Info("Processing build request", "app_name", req.AppName, "commit_hash", req.CommitHash)
+
+	// Create build record
+	if err := s.createBuildRecord(ctx, &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Extract bundle and match buildpack
+	bundle, buildpack, err := s.extractAndMatchBundle(ctx, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Build the project
+	deployment, err := s.buildProject(ctx, &req, bundle, buildpack)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, deployment)
+}
+
+// listBuildsWrapper wraps the store.ListBuilds function
+func (s *BaseEngine) listBuildsWrapper(ctx context.Context) (interface{}, error) {
+	builds, err := s.store.ListBuilds(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list builds: %w", err)
+	}
+	return builds, nil
+}
+
+// listBuildsByCommitHashWrapper wraps the store.ListBuildsByCommitHash function
+func (s *BaseEngine) listBuildsByCommitHashWrapper(ctx context.Context, commitHash string) (interface{}, error) {
+	builds, err := s.store.ListBuildsByCommitHash(ctx, commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list builds by commit hash: %w", err)
+	}
+	return builds, nil
+}
+
+// listBuildsHandler handles build listing requests
+func (s *BaseEngine) listBuildsHandler(c *gin.Context) {
+	s.handleList(c, s.listBuildsWrapper, s.listBuildsByCommitHashWrapper, "commit_hash", "builds")
 }
 
 // deleteBuildsHandler handles build deletion requests
@@ -692,4 +740,69 @@ func loggerMiddleware(log *logger.Logger) gin.HandlerFunc {
 		)
 		return ""
 	})
+}
+
+// handleGetByID is a helper function to handle GET requests by ID
+func (s *BaseEngine) handleGetByID(c *gin.Context, getFunc func(context.Context, string) (interface{}, error), idType string) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("%s ID is required", idType),
+		})
+		return
+	}
+
+	item, err := getFunc(c.Request.Context(), id)
+	if err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to get %s", idType), "id", id, "error", err)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": fmt.Sprintf("%s not found", idType),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
+// handleList is a helper function to handle list requests
+func (s *BaseEngine) handleList(
+	c *gin.Context,
+	listAllFunc func(context.Context) (interface{}, error),
+	listByFunc func(context.Context, string) (interface{}, error),
+	queryParam, itemType string,
+) {
+	query := c.Query(queryParam)
+
+	var items interface{}
+	var err error
+
+	if query != "" {
+		// Get items by query parameter
+		items, err = listByFunc(c.Request.Context(), query)
+	} else {
+		// Get all items
+		items, err = listAllFunc(c.Request.Context())
+	}
+
+	if err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to list %s", itemType), "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to list %s", itemType),
+		})
+		return
+	}
+
+	// Use reflection to get the length of the slice
+	itemsValue := reflect.ValueOf(items)
+	if itemsValue.Kind() == reflect.Slice {
+		c.JSON(http.StatusOK, gin.H{
+			itemType: items,
+			"count":  itemsValue.Len(),
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			itemType: items,
+			"count":  0,
+		})
+	}
 }

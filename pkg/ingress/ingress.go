@@ -3,9 +3,10 @@ package ingress
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -164,6 +165,36 @@ func (i *Ingress) getDeployments() []*types.Deployment {
 
 // handleRequest handles incoming HTTP requests
 func (i *Ingress) handleRequest(w http.ResponseWriter, r *http.Request) {
+	host := i.extractHost(r)
+	i.logger.Debug("Received request", "host", host, "path", r.URL.Path, "method", r.Method)
+
+	// Find deployment by appName (host)
+	deployment := i.findDeploymentByAppName(host)
+	if deployment == nil {
+		i.handleUnknownApplication(w, host)
+		return
+	}
+
+	// Select a random replica
+	container := i.selectRandomReplica(deployment)
+	if container == nil {
+		i.handleNoReplicasAvailable(w, deployment.AppName)
+		return
+	}
+
+	// Create and configure proxy
+	proxy := i.createProxy(container, host)
+	if proxy == nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Serve the request
+	proxy.ServeHTTP(w, r)
+}
+
+// extractHost extracts the host from the request
+func (i *Ingress) extractHost(r *http.Request) string {
 	host := r.Host
 	if host == "" {
 		host = r.Header.Get("Host")
@@ -173,57 +204,53 @@ func (i *Ingress) handleRequest(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
 	}
+	return host
+}
 
-	i.logger.Debug("Received request", "host", host, "path", r.URL.Path, "method", r.Method)
+// handleUnknownApplication handles requests for unknown applications
+func (i *Ingress) handleUnknownApplication(w http.ResponseWriter, host string) {
+	i.logger.Warn("Unknown application", "host", host)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
 
-	// Find deployment by appName (host)
-	deployment := i.findDeploymentByAppName(host)
-	if deployment == nil {
-		i.logger.Warn("Unknown application", "host", host)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-
-		errorResp := ErrorResponse{
-			Error:   "unknown_application",
-			Message: "unknown application",
-		}
-
-		if err := json.NewEncoder(w).Encode(errorResp); err != nil {
-			i.logger.Error("Failed to encode error response", "error", err)
-		}
-		return
+	errorResp := ErrorResponse{
+		Error:   "unknown_application",
+		Message: "unknown application",
 	}
 
-	// Select a random replica
-	container := i.selectRandomReplica(deployment)
-	if container == nil {
-		i.logger.Error("No available replicas", "app_name", deployment.AppName)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
+	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
+		i.logger.Error("Failed to encode error response", "error", err)
+	}
+}
 
-		errorResp := ErrorResponse{
-			Error:   "no_replicas_available",
-			Message: "no replicas available",
-		}
+// handleNoReplicasAvailable handles requests when no replicas are available
+func (i *Ingress) handleNoReplicasAvailable(w http.ResponseWriter, appName string) {
+	i.logger.Error("No available replicas", "app_name", appName)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
 
-		if err := json.NewEncoder(w).Encode(errorResp); err != nil {
-			i.logger.Error("Failed to encode error response", "error", err)
-		}
-		return
+	errorResp := ErrorResponse{
+		Error:   "no_replicas_available",
+		Message: "no replicas available",
 	}
 
+	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
+		i.logger.Error("Failed to encode error response", "error", err)
+	}
+}
+
+// createProxy creates and configures a reverse proxy for the given container
+func (i *Ingress) createProxy(container *types.Container, host string) *httputil.ReverseProxy {
 	// Build target URL
 	targetURL := fmt.Sprintf("http://%s:%d", container.Address, container.Port)
 	parsedURL, err := url.Parse(targetURL)
 	if err != nil {
 		i.logger.Error("Failed to parse target URL", "target", targetURL, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return nil
 	}
 
 	i.logger.Info("Routing request",
 		"host", host,
-		"app_name", deployment.AppName,
 		"target", targetURL,
 		"container_id", container.ContainerID)
 
@@ -258,8 +285,7 @@ func (i *Ingress) handleRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Proxy error", http.StatusBadGateway)
 	}
 
-	// Serve the request
-	proxy.ServeHTTP(w, r)
+	return proxy
 }
 
 // findDeploymentByAppName finds a deployment by appName
@@ -281,36 +307,13 @@ func (i *Ingress) selectRandomReplica(deployment *types.Deployment) *types.Conta
 		return nil
 	}
 
-	// Use a simple random selection
-	randomIndex := rand.Intn(len(deployment.Containers))
-	return &deployment.Containers[randomIndex]
-}
-
-// getTargetForHost returns the target URL for a given host
-func (i *Ingress) getTargetForHost(host string) (*url.URL, error) {
-	// For now, route all requests to httpbin.org
-	// In a real implementation, this would look up the host in the store
-	// and return the appropriate container URL
-
-	if host == "" {
-		return nil, fmt.Errorf("empty host")
-	}
-
-	// Default routing to httpbin.org for demonstration
-	target := "https://httpbin.org"
-
-	// In a real implementation, you would:
-	// 1. Look up the host in Redis/store
-	// 2. Find the corresponding deployment
-	// 3. Return the container's URL
-
-	i.logger.Debug("Routing host to target", "host", host, "target", target)
-
-	parsedURL, err := url.Parse(target)
+	// Use crypto/rand for secure random selection
+	randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(deployment.Containers))))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse target URL: %w", err)
+		// Fallback to first container if random generation fails
+		return &deployment.Containers[0]
 	}
-	return parsedURL, nil
+	return &deployment.Containers[randomIndex.Int64()]
 }
 
 // AddRoute adds a new routing rule

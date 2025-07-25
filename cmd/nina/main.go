@@ -14,6 +14,7 @@ import (
 	"github.com/matiasinsaurralde/nina/pkg/cli"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
+	"github.com/matiasinsaurralde/nina/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -81,9 +82,10 @@ func deployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Deploy applications",
-		Long:  `Deploy applications. Use 'deploy' to deploy the current directory, 'deploy ls' to list deployments, or 'deploy rm' to remove deployments.`,
+		Long: `Deploy applications. Use 'deploy' to deploy the current directory, ` +
+			`'deploy ls' to list deployments, or 'deploy rm' to remove deployments.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
@@ -97,7 +99,7 @@ func deployCmd() *cobra.Command {
 			log.Info("Deploying project from directory", "dir", workingDir, "replicas", replicas)
 
 			startTime := time.Now()
-			deployment, err := c.Deploy(context.Background(), workingDir, replicas)
+			deployment, err := cli.Deploy(context.Background(), workingDir, replicas)
 			if err != nil {
 				return fmt.Errorf("failed to deploy application: %w", err)
 			}
@@ -143,14 +145,14 @@ func deployLsCmd() *cobra.Command {
 		Short: "List all deployments",
 		Long:  `List all deployments in a tabular format.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
 			log.Info("Listing deployments")
 
-			deployments, err := c.ListDeployments(context.Background())
+			deployments, err := cli.ListDeployments(context.Background())
 			if err != nil {
 				return fmt.Errorf("failed to list deployments: %w", err)
 			}
@@ -205,21 +207,25 @@ func deployRmCmd() *cobra.Command {
 		Long:  `Remove deployments by ID. This will delete the deployment with the given ID.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			c, _, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 			id := args[0]
-			url := fmt.Sprintf("http://%s/api/v1/deployments/%s", c.Config().GetServerAddr(), id)
-			req, err := http.NewRequest("DELETE", url, nil)
+			url := fmt.Sprintf("http://%s/api/v1/deployments/%s", cli.Config().GetServerAddr(), id)
+			req, err := http.NewRequestWithContext(context.Background(), "DELETE", url, http.NoBody)
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
-			resp, err := c.Client().Do(req)
+			resp, err := cli.Client().Do(req)
 			if err != nil {
 				return fmt.Errorf("failed to send request: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					log.Error("Failed to close response body", "error", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -241,7 +247,7 @@ func buildCmd() *cobra.Command {
 		Short: "Build projects",
 		Long:  `Build projects. Use 'build' to create a new build from the current directory, or 'build ls' to list existing builds.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
@@ -254,7 +260,7 @@ func buildCmd() *cobra.Command {
 
 			log.Info("Building project from directory", "dir", workingDir)
 
-			builtImage, err := c.Build(context.Background(), workingDir)
+			builtImage, err := cli.Build(context.Background(), workingDir)
 			if err != nil {
 				return fmt.Errorf("failed to build deployment: %w", err)
 			}
@@ -276,57 +282,101 @@ func buildCmd() *cobra.Command {
 	return cmd
 }
 
+// formatTableItem formats a single item for table display
+func formatTableItem(item interface{}) (appName, commitHash, author, commitMsg, status string) {
+	switch v := item.(type) {
+	case *types.Build:
+		appName = v.AppName
+		commitHash = v.CommitHash
+		author = v.Author
+		commitMsg = v.CommitMessage
+		status = string(v.Status)
+	case *types.Deployment:
+		appName = v.AppName
+		commitHash = v.CommitHash
+		author = v.Author
+		commitMsg = v.CommitMessage
+		status = string(v.Status)
+	}
+
+	// Truncate commit message if too long
+	if len(commitMsg) > 37 {
+		commitMsg = commitMsg[:37] + "..."
+	}
+
+	// Truncate commit hash to 12 characters
+	if len(commitHash) > 12 {
+		commitHash = commitHash[:12]
+	}
+
+	return appName, commitHash, author, commitMsg, status
+}
+
+// printTableData is a helper function to print tabular data for builds and deployments
+func printTableData(items interface{}, itemType string) error {
+	var data []interface{}
+	var count int
+
+	switch v := items.(type) {
+	case []*types.Build:
+		data = make([]interface{}, len(v))
+		for i, item := range v {
+			data[i] = item
+		}
+		count = len(v)
+	case []*types.Deployment:
+		data = make([]interface{}, len(v))
+		for i, item := range v {
+			data[i] = item
+		}
+		count = len(v)
+	default:
+		return fmt.Errorf("unsupported item type: %T", items)
+	}
+
+	if count == 0 {
+		fmt.Printf("No %s found.\n", itemType)
+		return nil
+	}
+
+	// Print header
+	fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
+	fmt.Println(strings.Repeat("-", 110))
+
+	// Print items
+	for _, item := range data {
+		appName, commitHash, author, commitMsg, status := formatTableItem(item)
+		fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
+			appName,
+			commitHash,
+			author,
+			commitMsg,
+			status)
+	}
+
+	fmt.Printf("\nTotal %s: %d\n", itemType, count)
+	return nil
+}
+
 func buildLsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List all builds",
 		Long:  `List all builds in a tabular format.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
 			log.Info("Listing builds")
 
-			builds, err := c.ListBuilds(context.Background())
+			builds, err := cli.ListBuilds(context.Background())
 			if err != nil {
 				return fmt.Errorf("failed to list builds: %w", err)
 			}
 
-			if len(builds) == 0 {
-				fmt.Println("No builds found.")
-				return nil
-			}
-
-			// Print header
-			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
-			fmt.Println(strings.Repeat("-", 110))
-
-			// Print builds
-			for _, build := range builds {
-				// Truncate commit message if too long
-				commitMsg := build.CommitMessage
-				if len(commitMsg) > 37 {
-					commitMsg = commitMsg[:37] + "..."
-				}
-
-				// Truncate commit hash to 12 characters
-				commitHash := build.CommitHash
-				if len(commitHash) > 12 {
-					commitHash = commitHash[:12]
-				}
-
-				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
-					build.AppName,
-					commitHash,
-					build.Author,
-					commitMsg,
-					build.Status)
-			}
-
-			fmt.Printf("\nTotal builds: %d\n", len(builds))
-			return nil
+			return printTableData(builds, "builds")
 		},
 	}
 
@@ -340,21 +390,25 @@ func buildRmCmd() *cobra.Command {
 		Long:  `Remove builds by app name or commit hash. This will delete all builds that match the given app name or commit hash.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			c, _, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 			id := args[0]
-			url := fmt.Sprintf("http://%s/api/v1/builds/%s", c.Config().GetServerAddr(), id)
-			req, err := http.NewRequest("DELETE", url, nil)
+			url := fmt.Sprintf("http://%s/api/v1/builds/%s", cli.Config().GetServerAddr(), id)
+			req, err := http.NewRequestWithContext(context.Background(), "DELETE", url, http.NoBody)
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
-			resp, err := c.Client().Do(req)
+			resp, err := cli.Client().Do(req)
 			if err != nil {
 				return fmt.Errorf("failed to send request: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					log.Error("Failed to close response body", "error", closeErr)
+				}
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -391,7 +445,7 @@ func deleteCmd() *cobra.Command {
 		Long:  `Delete a deployment by its ID.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
@@ -399,7 +453,7 @@ func deleteCmd() *cobra.Command {
 			id := args[0]
 			log.Info("Deleting deployment", "id", id)
 
-			if err := c.DeleteDeployment(context.Background(), id); err != nil {
+			if err := cli.DeleteDeployment(context.Background(), id); err != nil {
 				return fmt.Errorf("failed to delete deployment: %w", err)
 			}
 
@@ -418,7 +472,7 @@ func statusCmd() *cobra.Command {
 		Long:  `Get the status of a deployment by its ID.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
@@ -426,7 +480,7 @@ func statusCmd() *cobra.Command {
 			id := args[0]
 			log.Info("Getting deployment status", "id", id)
 
-			deployment, err := c.GetDeploymentStatus(context.Background(), id)
+			deployment, err := cli.GetDeploymentStatus(context.Background(), id)
 			if err != nil {
 				return fmt.Errorf("failed to get deployment status: %w", err)
 			}
@@ -451,51 +505,19 @@ func listCmd() *cobra.Command {
 		Short: "List all deployments",
 		Long:  `List all deployments in a tabular format.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
 			log.Info("Listing deployments")
 
-			deployments, err := c.ListDeployments(context.Background())
+			deployments, err := cli.ListDeployments(context.Background())
 			if err != nil {
 				return fmt.Errorf("failed to list deployments: %w", err)
 			}
 
-			if len(deployments) == 0 {
-				fmt.Println("No deployments found.")
-				return nil
-			}
-
-			// Print header
-			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
-			fmt.Println(strings.Repeat("-", 110))
-
-			// Print deployments
-			for _, deployment := range deployments {
-				// Truncate commit message if too long
-				commitMsg := deployment.CommitMessage
-				if len(commitMsg) > 37 {
-					commitMsg = commitMsg[:37] + "..."
-				}
-
-				// Truncate commit hash to 12 characters
-				commitHash := deployment.CommitHash
-				if len(commitHash) > 12 {
-					commitHash = commitHash[:12]
-				}
-
-				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
-					deployment.AppName,
-					commitHash,
-					deployment.Author,
-					commitMsg,
-					deployment.Status)
-			}
-
-			fmt.Printf("\nTotal deployments: %d\n", len(deployments))
-			return nil
+			return printTableData(deployments, "deployments")
 		},
 	}
 
@@ -508,14 +530,14 @@ func healthCmd() *cobra.Command {
 		Short: "Check Engine server health",
 		Long:  `Check if the Engine server is healthy and responding.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			c, log, err := getCLI()
+			cli, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
 			log.Info("Checking Engine server health")
 
-			if err := c.HealthCheck(context.Background()); err != nil {
+			if err := cli.HealthCheck(context.Background()); err != nil {
 				return fmt.Errorf("health check failed: %w", err)
 			}
 

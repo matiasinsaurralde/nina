@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestExtractAppNameFromRepoURL(t *testing.T) {
+func TestExtractAppNameFromRepoURL(t *testing.T) { //nolint: funlen
 	tests := []struct {
 		name     string
 		repoURL  string
