@@ -3,9 +3,11 @@ package ingress
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -314,6 +316,30 @@ func TestIngress_HandleRequest_NoReplicasAvailable(t *testing.T) {
 }
 
 func TestIngress_HandleRequest_ValidRouting(t *testing.T) {
+	// Start a real backend server
+	backendCalled := false
+	var receivedContainerID string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+		receivedContainerID = r.Header.Get("X-Nina-Replica-Container-ID")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello from backend"))
+	}))
+	defer backend.Close()
+
+	// Parse backend address and port
+	backendURL := backend.URL // e.g. http://127.0.0.1:12345
+	urlParts := strings.Split(strings.TrimPrefix(backendURL, "http://"), ":")
+	if len(urlParts) != 2 {
+		t.Fatalf("unexpected backend URL: %s", backendURL)
+	}
+	backendAddr := urlParts[0]
+	backendPort, err := strconv.Atoi(urlParts[1])
+	if err != nil {
+		t.Fatalf("invalid backend port: %v", err)
+	}
+
 	// Create test config
 	cfg := &config.Config{
 		Ingress: config.IngressConfig{
@@ -323,88 +349,47 @@ func TestIngress_HandleRequest_ValidRouting(t *testing.T) {
 		},
 	}
 
-	// Create logger
 	log := logger.New(logger.LevelDebug, "text")
-
-	// Create mock store
 	mockStore := &store.Store{}
-
-	// Create ingress
 	ingress := NewIngress(cfg, log, mockStore)
 
-	// Set up deployment with containers
+	containerID := "container1"
 	testDeployments := []*types.Deployment{
 		{
 			ID:      "1",
 			AppName: "app1",
 			Containers: []types.Container{
-				{ContainerID: "container1", Address: "localhost", Port: 8080},
+				{ContainerID: containerID, Address: backendAddr, Port: backendPort},
 			},
 		},
 	}
-
 	ingress.deploymentsMux.Lock()
 	ingress.deployments = testDeployments
 	ingress.deploymentsMux.Unlock()
 
-	// Test that the deployment is found correctly
-	deployment := ingress.findDeploymentByAppName("app1")
-	if deployment == nil {
-		t.Fatal("Expected to find deployment for 'app1', got nil")
-	}
-
-	// Test that a replica is selected correctly
-	container := ingress.selectRandomReplica(deployment)
-	if container == nil {
-		t.Fatal("Expected to find container for deployment, got nil")
-	}
-
-	// Test that the target URL is built correctly
-	expectedTarget := "http://localhost:8080"
-	actualTarget := fmt.Sprintf("http://%s:%d", container.Address, container.Port)
-	if actualTarget != expectedTarget {
-		t.Errorf("Expected target URL %s, got %s", expectedTarget, actualTarget)
-	}
-
-	// Create test request
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Host = "app1"
 	req.Header.Set("Host", "app1")
-
-	// Create response recorder
 	w := httptest.NewRecorder()
 
-	// Handle request
 	ingress.handleRequest(w, req)
 
-	// Debug: Check what status code we got
-	t.Logf("Response status code: %d", w.Code)
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
 
-	// For a valid routing, we expect the request to be proxied
-	// Since we don't have a real backend, we expect a proxy error (502 Bad Gateway)
-	// The routing logic worked correctly if we get a 502 (proxy error)
-	// We should NOT get a 404 (unknown app) or 503 (no replicas)
-	if w.Code == http.StatusNotFound {
-		t.Errorf("Expected request to be routed, got 404 (unknown application)")
+	if !backendCalled {
+		t.Fatal("Expected backend to be called, but it was not")
 	}
-	if w.Code == http.StatusServiceUnavailable {
-		t.Errorf("Expected request to be routed, got 503 (no replicas available)")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status 200 from backend, got %d", resp.StatusCode)
 	}
-
-	// Since the routing logic worked (we can see from the logs),
-	// and we don't have a real backend, we expect some kind of error
-	// The important thing is that we don't get a 404 (unknown app) or 503 (no replicas)
-	// which would indicate the routing logic failed
-	if w.Code == http.StatusNotFound {
-		t.Errorf("Expected request to be routed, got 404 (unknown application)")
+	if string(body) != "hello from backend" {
+		t.Errorf("Expected backend response body, got: %s", string(body))
 	}
-	if w.Code == http.StatusServiceUnavailable {
-		t.Errorf("Expected request to be routed, got 503 (no replicas available)")
+	if receivedContainerID != containerID {
+		t.Errorf("Expected X-Nina-Replica-Container-ID header to be %q, got %q", containerID, receivedContainerID)
 	}
-
-	// Any other status code (like 502, 500, etc.) indicates the routing worked
-	// but the proxy failed, which is expected since there's no backend
-	t.Logf("Routing logic worked correctly - got status %d (expected since no backend)", w.Code)
 }
 
 func TestIngress_DeploymentFetcher(t *testing.T) {
