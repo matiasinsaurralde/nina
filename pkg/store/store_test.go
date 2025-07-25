@@ -6,7 +6,6 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
-	"github.com/redis/go-redis/v9"
 )
 
 func TestStoreWithMiniredis(t *testing.T) {
@@ -30,16 +29,12 @@ func TestStoreWithMiniredis(t *testing.T) {
 	// Create test logger
 	log := logger.New(logger.LevelDebug, "text")
 
-	// Create store with mock Redis
-	client := redis.NewClient(&redis.Options{
-		Addr: mockRedis.Addr(),
-	})
-
-	store := &Store{
-		client: client,
-		logger: log,
-		config: cfg,
+	// Create store using NewStore function to ensure proper initialization
+	store, err := NewStore(cfg, log)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
 	}
+	defer store.Close()
 
 	// Run the same test suite as integration tests but with mock store
 	runStoreTestSuite(t, store)

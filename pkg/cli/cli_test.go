@@ -13,14 +13,14 @@ func TestDeploy(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
 	c := NewCLI(cfg, log)
 
 	// Test that Deploy returns an error for non-Git directory
-	_, err := c.Deploy(context.Background(), "/tmp")
+	_, err := c.Deploy(context.Background(), "/tmp", 1)
 	if err == nil {
 		t.Error("Expected error for non-Git directory, got nil")
 	}
@@ -31,7 +31,7 @@ func TestDeploymentExists(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
@@ -49,7 +49,7 @@ func TestBuildExists(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
@@ -86,13 +86,13 @@ func TestListDeployments(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
 	c := NewCLI(cfg, log)
 
-	// Test that ListDeployments returns an empty slice when server is not available
+	// Test that ListDeployments returns an error when server is not available
 	deployments, err := c.ListDeployments(context.Background())
 	if err == nil {
 		t.Error("Expected error when server is not available, got nil")
@@ -107,13 +107,13 @@ func TestListBuilds(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
 	c := NewCLI(cfg, log)
 
-	// Test that ListBuilds returns an empty slice when server is not available
+	// Test that ListBuilds returns an error when server is not available
 	builds, err := c.ListBuilds(context.Background())
 	if err == nil {
 		t.Error("Expected error when server is not available, got nil")
@@ -128,7 +128,7 @@ func TestHealthCheck(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
@@ -146,14 +146,14 @@ func TestProvision(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
-			Port: 8080,
+			Port: 9999, // Use a port that's likely not in use
 		},
 	}
 	log := logger.New(logger.LevelInfo, "text")
 	c := NewCLI(cfg, log)
 
 	// Test that Deploy returns an error when server is not available
-	_, err := c.Deploy(context.Background(), "/tmp")
+	_, err := c.Deploy(context.Background(), "/tmp", 1)
 	if err == nil {
 		t.Error("Expected error when server is not available, got nil")
 	}

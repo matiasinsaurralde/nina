@@ -140,7 +140,7 @@ func (s *Store) CreateNewDeployment(ctx context.Context, req *types.DeploymentRe
 
 // GetDeployment retrieves a deployment by ID
 func (s *Store) GetDeployment(ctx context.Context, id string) (*Deployment, error) {
-	key := fmt.Sprintf("nina-deployment-%s", id)
+	key := fmt.Sprintf("deployment:%s", id)
 	data, err := s.client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -178,7 +178,7 @@ func (s *Store) GetNewDeployment(ctx context.Context, appName string) (*types.De
 
 // GetDeploymentByName retrieves a deployment by name
 func (s *Store) GetDeploymentByName(ctx context.Context, name string) (*Deployment, error) {
-	nameKey := fmt.Sprintf("nina-deployment:%s", name)
+	nameKey := fmt.Sprintf("deployment:name:%s", name)
 	deploymentID, err := s.client.Get(ctx, nameKey).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -271,9 +271,15 @@ func (s *Store) DeleteDeployment(ctx context.Context, id string) error {
 	}
 
 	// Delete deployment data
-	key := fmt.Sprintf("nina-deployment-%s", id)
+	key := fmt.Sprintf("deployment:%s", id)
 	if err := s.client.Del(ctx, key).Err(); err != nil {
 		return fmt.Errorf("failed to delete deployment: %w", err)
+	}
+
+	// Delete deployment name mapping
+	nameKey := fmt.Sprintf("deployment:name:%s", deployment.Name)
+	if err := s.client.Del(ctx, nameKey).Err(); err != nil {
+		return fmt.Errorf("failed to delete deployment name mapping: %w", err)
 	}
 
 	s.logger.Info("Deleted deployment", "id", id, "name", deployment.Name)
