@@ -21,9 +21,11 @@ Nina leverages three core technologies:
 ## Features
 
 - **Container Provisioning**: Create and manage container deployments via REST API
+- **Application Deployment**: Deploy applications from Git repositories with automatic containerization
+- **Build System**: Build container images from source code with automatic buildpack detection
 - **Reverse Proxy Ingress**: Route HTTP requests based on Host headers to appropriate containers
 - **Redis-backed Storage**: Persistent storage for deployment metadata and state
-- **RESTful API**: Full CRUD operations for deployments
+- **RESTful API**: Full CRUD operations for deployments and builds
 - **CLI Interface**: Command-line tool for interacting with the API
 - **Configurable Logging**: Colored terminal output with multiple log levels
 - **XDG-compliant Configuration**: Automatic config file creation in `$HOME/.nina/`
@@ -92,26 +94,46 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 # Check Engine server health
 ./nina health
 
-# Provision a new deployment
-./nina provision --name my-app --image nginx:latest --ports 80,443
+# Build a project from the current directory
+./nina build
+
+# List all builds
+./nina build ls
+
+# Remove builds
+./nina build rm [app-name-or-commit-hash]
+
+# Deploy an application from the current directory
+./nina deploy
 
 # List all deployments
+./nina deploy ls
+
+# Remove a deployment
+./nina deploy rm [deployment-id]
+
+# List all deployments (legacy command)
 ./nina list
 
 # Get deployment status
 ./nina status <deployment-id>
 
-# Delete a deployment
+# Delete a deployment (legacy command)
 ./nina delete <deployment-id>
 ```
 
 ### API Endpoints
 
 - `GET /health` - Health check
-- `POST /api/v1/provision` - Create a new deployment
+- `POST /api/v1/build` - Create a new build
+- `GET /api/v1/builds` - List all builds
+- `DELETE /api/v1/builds/:id` - Delete builds by app name or commit hash
+- `POST /api/v1/deploy` - Deploy an application
 - `GET /api/v1/deployments` - List all deployments
+- `GET /api/v1/deployments/:id` - Get deployment by ID
 - `GET /api/v1/deployments/:id/status` - Get deployment status
 - `DELETE /api/v1/deployments/:id` - Delete a deployment
+- `POST /api/v1/provision` - Legacy provisioning endpoint
 
 ## Development
 
@@ -231,22 +253,40 @@ This is a PoC project for research and learning purposes. Contributions are welc
    # Check health
    ./nina health
    
-   # Provision a deployment
-   ./nina provision --name my-app --image nginx:latest --ports 80
+   # Build a project (from a Git repository)
+   ./nina build
+   
+   # Deploy the built project
+   ./nina deploy
    
    # List deployments
-   ./nina list
+   ./nina deploy ls
    ```
 
 ## Architecture Overview
 
 Nina consists of three main components:
 
-1. **Engine Server** (`cmd/engine`): RESTful API for managing container deployments
+1. **Engine Server** (`cmd/engine`): RESTful API for managing container deployments and builds
 2. **Ingress Proxy** (`cmd/ingress`): Reverse proxy that routes requests based on Host headers
 3. **CLI Tool** (`cmd/nina`): Command-line interface for interacting with the API
 
 The system uses Redis for persistent storage and supports XDG-compliant configuration management.
+
+## Deployment Workflow
+
+1. **Build**: The `nina build` command creates a container image from your source code
+   - Detects the project type (Go, etc.) automatically
+   - Creates a Dockerfile if needed
+   - Builds and tags the image as `nina-{app-name}-{commit-hash}`
+
+2. **Deploy**: The `nina deploy` command deploys the built application
+   - Checks if a build exists for the current commit
+   - Creates a deployment record
+   - Starts containers using the built image
+   - Manages deployment status (unavailable → deploying → ready)
+
+3. **Manage**: Use `nina deploy ls` and `nina deploy rm` to manage deployments
 
 ## Continuous Integration
 
@@ -263,4 +303,4 @@ The CI workflow ensures code quality and catches issues early in the development
 
 ---
 
-*This project is a Proof of Concept demonstrating container provisioning concepts. The current implementation simulates container operations and routes all ingress traffic to httpbin.org for demonstration purposes.* 
+*This project is a Proof of Concept demonstrating container provisioning concepts. The current implementation provides a complete build and deployment pipeline for containerized applications.* 

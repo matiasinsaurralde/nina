@@ -21,6 +21,8 @@ const (
 	DeploymentStatusDeploying DeploymentStatus = "deploying"
 	// DeploymentStatusReady represents a deployment that is ready.
 	DeploymentStatusReady DeploymentStatus = "ready"
+	// DeploymentStatusFailed represents a deployment that failed.
+	DeploymentStatusFailed DeploymentStatus = "failed"
 
 	// BuildStatusPending represents a build that is pending.
 	BuildStatusPending BuildStatus = "pending"
@@ -32,12 +34,28 @@ const (
 	BuildStatusFailed BuildStatus = "failed"
 )
 
+// DeploymentRequest represents a request to deploy an application.
+type DeploymentRequest struct {
+	AppName       string `json:"app_name"`
+	CommitHash    string `json:"commit_hash"`
+	Author        string `json:"author"`
+	AuthorEmail   string `json:"author_email"`
+	CommitMessage string `json:"commit_message"`
+}
+
 // Deployment represents a deployment configuration.
 type Deployment struct {
-	AppName    string           `json:"app_name"`
-	RepoURL    string           `json:"repo_url"`
-	Containers []Container      `json:"containers"`
-	Status     DeploymentStatus `json:"status"`
+	ID            string           `json:"id"`
+	AppName       string           `json:"app_name"`
+	RepoURL       string           `json:"repo_url"`
+	Author        string           `json:"author"`
+	AuthorEmail   string           `json:"author_email"`
+	CommitHash    string           `json:"commit_hash"`
+	CommitMessage string           `json:"commit_message"`
+	Containers    []Container      `json:"containers"`
+	Status        DeploymentStatus `json:"status"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
 }
 
 type DeploymentImage struct {
@@ -50,6 +68,8 @@ type DeploymentImage struct {
 type Container struct {
 	ContainerID string `json:"container_id"`
 	ImageTag    string `json:"image_tag"`
+	Address     string `json:"address"`
+	Port        int    `json:"port"`
 }
 
 // BuildRequest represents a request to build a deployment.
@@ -75,6 +95,6 @@ type Build struct {
 	CommitMessage string      `json:"commit_message"`
 	ImageTag      string      `json:"image_tag"`
 	ImageID       string      `json:"image_id"`
-	Status        BuildStatus `json:"status"`
 	Size          int64       `json:"size"`
+	Status        BuildStatus `json:"status"`
 }

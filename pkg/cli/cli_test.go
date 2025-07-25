@@ -8,42 +8,153 @@ import (
 	"github.com/matiasinsaurralde/nina/pkg/logger"
 )
 
-func TestBuildExists(t *testing.T) {
-	// Create test configuration
+func TestDeploy(t *testing.T) {
+	// Create a test CLI instance
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host: "localhost",
 			Port: 8080,
 		},
 	}
-
-	// Create test logger
-	log := logger.New(logger.LevelDebug, "text")
-
-	// Create CLI instance
+	log := logger.New(logger.LevelInfo, "text")
 	c := NewCLI(cfg, log)
 
-	// Test with a non-existent commit hash
-	exists, err := c.BuildExists(context.Background(), "nonexistent-commit")
-	if err != nil {
-		// This is expected to fail since we don't have a real server running
-		// The important thing is that the method doesn't panic and handles errors gracefully
-		t.Logf("Expected error when server is not running: %v", err)
-		return
+	// Test that Deploy returns an error for non-Git directory
+	_, err := c.Deploy(context.Background(), "/tmp")
+	if err == nil {
+		t.Error("Expected error for non-Git directory, got nil")
 	}
+}
 
-	if exists {
-		t.Error("Expected build to not exist for non-existent commit")
+func TestDeploymentExists(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that DeploymentExists returns an error when server is not available
+	_, err := c.DeploymentExists(context.Background(), "nonexistent-app")
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
+}
+
+func TestBuildExists(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that BuildExists returns an error when server is not available
+	_, err := c.BuildExists(context.Background(), "nonexistent-commit")
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
 	}
 }
 
 func TestBuildExistsWithRealServer(t *testing.T) {
-	// Skip this test if not running integration tests
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	// This test would require a real server to be running
+	// For now, we'll just test the error handling
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 9999, // Use a port that's likely not in use
+		},
 	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
 
-	// This test would require a real server running
-	// For now, we'll just verify the method signature and basic functionality
-	t.Skip("Integration test requires running server")
+	// Test that BuildExists returns an error when server is not available
+	_, err := c.BuildExists(context.Background(), "test-commit")
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
+}
+
+func TestListDeployments(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that ListDeployments returns an empty slice when server is not available
+	deployments, err := c.ListDeployments(context.Background())
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
+	if deployments != nil {
+		t.Error("Expected nil deployments when server is not available")
+	}
+}
+
+func TestListBuilds(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that ListBuilds returns an empty slice when server is not available
+	builds, err := c.ListBuilds(context.Background())
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
+	if builds != nil {
+		t.Error("Expected nil builds when server is not available")
+	}
+}
+
+func TestHealthCheck(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that HealthCheck returns an error when server is not available
+	err := c.HealthCheck(context.Background())
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
+}
+
+func TestProvision(t *testing.T) {
+	// Create a test CLI instance
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Host: "localhost",
+			Port: 8080,
+		},
+	}
+	log := logger.New(logger.LevelInfo, "text")
+	c := NewCLI(cfg, log)
+
+	// Test that Deploy returns an error when server is not available
+	_, err := c.Deploy(context.Background(), "/tmp")
+	if err == nil {
+		t.Error("Expected error when server is not available, got nil")
+	}
 }

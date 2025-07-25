@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/matiasinsaurralde/nina/pkg/cli"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
-	"github.com/matiasinsaurralde/nina/pkg/store"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +41,7 @@ This CLI allows you to interact with the Nina Engine server to manage container 
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 
 	// Add subcommands
-	rootCmd.AddCommand(provisionCmd())
+	rootCmd.AddCommand(deployCmd())
 	rootCmd.AddCommand(buildCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(statusCmd())
@@ -75,65 +75,154 @@ func getCLI() (*cli.CLI, *logger.Logger, error) {
 	return c, log, nil
 }
 
-func provisionCmd() *cobra.Command {
-	var (
-		name        string
-		image       string
-		ports       []int
-		environment map[string]string
-	)
-
+func deployCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "provision",
-		Short: "Provision a new container deployment",
-		Long:  `Provision a new container deployment with the specified configuration.`,
+		Use:   "deploy",
+		Short: "Deploy applications",
+		Long:  `Deploy applications. Use 'deploy' to deploy the current directory, 'deploy ls' to list deployments, or 'deploy rm' to remove deployments.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
 				return err
 			}
 
-			if name == "" || image == "" {
-				return fmt.Errorf("name and image are required")
-			}
-
-			req := &store.ProvisionRequest{
-				Name:        name,
-				Image:       image,
-				Ports:       ports,
-				Environment: environment,
-			}
-
-			log.Info("Provisioning deployment", "name", name, "image", image)
-
-			deployment, err := c.Provision(context.Background(), req)
+			// Get current working directory
+			workingDir, err := os.Getwd()
 			if err != nil {
-				return fmt.Errorf("failed to provision deployment: %w", err)
+				return fmt.Errorf("failed to get current working directory: %w", err)
 			}
 
-			// Output JSON
-			data, err := json.MarshalIndent(deployment, "", "  ")
+			log.Info("Deploying project from directory", "dir", workingDir)
+
+			startTime := time.Now()
+			deployment, err := c.Deploy(context.Background(), workingDir)
 			if err != nil {
-				return fmt.Errorf("failed to marshal response: %w", err)
+				return fmt.Errorf("failed to deploy application: %w", err)
 			}
 
-			fmt.Println(string(data))
+			elapsed := time.Since(startTime)
+
+			// Output friendly success message
+			fmt.Printf("✅ Deployment completed successfully!\n")
+			fmt.Printf("🆔 Deployment ID: %s\n", deployment.ID)
+			fmt.Printf("📱 App Name: %s\n", deployment.AppName)
+			fmt.Printf("🔗 Commit Hash: %s\n", deployment.CommitHash)
+			fmt.Printf("👤 Author: %s\n", deployment.Author)
+			fmt.Printf("📝 Commit Message: %s\n", deployment.CommitMessage)
+			fmt.Printf("📊 Status: %s\n", deployment.Status)
+			fmt.Printf("⏱️  Elapsed Time: %s\n", elapsed)
+
+			if len(deployment.Containers) > 0 {
+				fmt.Printf("🐳 Containers:\n")
+				for i, container := range deployment.Containers {
+					fmt.Printf("  %d. ID: %s, Image: %s, Address: %s:%d\n",
+						i+1, container.ContainerID, container.ImageTag, container.Address, container.Port)
+				}
+			}
+
+			fmt.Printf("\nThe application has been successfully deployed.\n")
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "Deployment name")
-	cmd.Flags().StringVar(&image, "image", "", "Container image")
-	cmd.Flags().IntSliceVar(&ports, "ports", []int{}, "Container ports")
-	cmd.Flags().StringToStringVar(&environment, "env", map[string]string{}, "Environment variables")
+	// Add subcommands
+	cmd.AddCommand(deployLsCmd())
+	cmd.AddCommand(deployRmCmd())
 
-	if err := cmd.MarkFlagRequired("name"); err != nil {
-		panic(err) // This should never happen in practice
-	}
-	if err := cmd.MarkFlagRequired("image"); err != nil {
-		panic(err) // This should never happen in practice
+	return cmd
+}
+
+func deployLsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ls",
+		Short: "List all deployments",
+		Long:  `List all deployments in a tabular format.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			c, log, err := getCLI()
+			if err != nil {
+				return err
+			}
+
+			log.Info("Listing deployments")
+
+			deployments, err := c.ListDeployments(context.Background())
+			if err != nil {
+				return fmt.Errorf("failed to list deployments: %w", err)
+			}
+
+			if len(deployments) == 0 {
+				fmt.Println("No deployments found.")
+				return nil
+			}
+
+			// Print header
+			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
+			fmt.Println(strings.Repeat("-", 110))
+
+			// Print deployments
+			for _, deployment := range deployments {
+				// Truncate commit message if too long
+				commitMsg := deployment.CommitMessage
+				if len(commitMsg) > 37 {
+					commitMsg = commitMsg[:37] + "..."
+				}
+
+				// Truncate commit hash to 12 characters
+				commitHash := deployment.CommitHash
+				if len(commitHash) > 12 {
+					commitHash = commitHash[:12]
+				}
+
+				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
+					deployment.AppName,
+					commitHash,
+					deployment.Author,
+					commitMsg,
+					deployment.Status)
+			}
+
+			fmt.Printf("\nTotal deployments: %d\n", len(deployments))
+			return nil
+		},
 	}
 
+	return cmd
+}
+
+func deployRmCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rm [id]",
+		Short: "Remove deployments by ID",
+		Long:  `Remove deployments by ID. This will delete the deployment with the given ID.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			c, _, err := getCLI()
+			if err != nil {
+				return err
+			}
+			id := args[0]
+			url := fmt.Sprintf("http://%s/api/v1/deployments/%s", c.Config().GetServerAddr(), id)
+			req, err := http.NewRequest("DELETE", url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			resp, err := c.Client().Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("delete failed: %s (status: %d)", string(body), resp.StatusCode)
+			}
+			fmt.Printf("Deployment %s deleted successfully\n", id)
+			return nil
+		},
+	}
 	return cmd
 }
 
@@ -257,6 +346,7 @@ func buildRmCmd() *cobra.Command {
 				return fmt.Errorf("failed to send request: %w", err)
 			}
 			defer resp.Body.Close()
+
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return fmt.Errorf("failed to read response: %w", err)
@@ -350,7 +440,7 @@ func listCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all deployments",
-		Long:  `List all deployments.`,
+		Long:  `List all deployments in a tabular format.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
@@ -364,13 +454,38 @@ func listCmd() *cobra.Command {
 				return fmt.Errorf("failed to list deployments: %w", err)
 			}
 
-			// Output JSON
-			data, err := json.MarshalIndent(deployments, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal response: %w", err)
+			if len(deployments) == 0 {
+				fmt.Println("No deployments found.")
+				return nil
 			}
 
-			fmt.Println(string(data))
+			// Print header
+			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
+			fmt.Println(strings.Repeat("-", 110))
+
+			// Print deployments
+			for _, deployment := range deployments {
+				// Truncate commit message if too long
+				commitMsg := deployment.CommitMessage
+				if len(commitMsg) > 37 {
+					commitMsg = commitMsg[:37] + "..."
+				}
+
+				// Truncate commit hash to 12 characters
+				commitHash := deployment.CommitHash
+				if len(commitHash) > 12 {
+					commitHash = commitHash[:12]
+				}
+
+				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
+					deployment.AppName,
+					commitHash,
+					deployment.Author,
+					commitMsg,
+					deployment.Status)
+			}
+
+			fmt.Printf("\nTotal deployments: %d\n", len(deployments))
 			return nil
 		},
 	}
@@ -382,7 +497,7 @@ func healthCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "health",
 		Short: "Check Engine server health",
-		Long:  `Check if the Engine server is healthy.`,
+		Long:  `Check if the Engine server is healthy and responding.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
@@ -395,7 +510,7 @@ func healthCmd() *cobra.Command {
 				return fmt.Errorf("health check failed: %w", err)
 			}
 
-			fmt.Println("Engine server is healthy")
+			fmt.Println("✅ Engine server is healthy")
 			return nil
 		},
 	}
@@ -403,7 +518,7 @@ func healthCmd() *cobra.Command {
 	return cmd
 }
 
-// formatBytes formats bytes into human readable format
+// formatBytes formats bytes into a human-readable string
 func formatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
