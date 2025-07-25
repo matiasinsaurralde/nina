@@ -41,7 +41,6 @@ This CLI allows you to interact with the Nina Engine server to manage container 
 	// Add subcommands
 	rootCmd.AddCommand(provisionCmd())
 	rootCmd.AddCommand(buildCmd())
-	rootCmd.AddCommand(buildsCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(listCmd())
@@ -139,8 +138,8 @@ func provisionCmd() *cobra.Command {
 func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build a deployment from the current directory",
-		Long:  `Build a deployment from the current Git repository. This command will create a TAR archive of the current directory (excluding .git), compress it, and send it to the Engine server for building.`,
+		Short: "Build and manage deployments",
+		Long:  `Build and manage deployments. Use 'build' to create a new build from the current directory, or 'build ls' to list existing builds.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
@@ -170,12 +169,15 @@ func buildCmd() *cobra.Command {
 		},
 	}
 
+	// Add subcommands
+	cmd.AddCommand(buildLsCmd())
+
 	return cmd
 }
 
-func buildsCmd() *cobra.Command {
+func buildLsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "builds",
+		Use:   "ls",
 		Short: "List all builds",
 		Long:  `List all builds in a tabular format.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
