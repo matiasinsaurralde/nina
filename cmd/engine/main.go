@@ -36,9 +36,6 @@ func main() {
 		log.ForceColor() // Force color output for better visibility
 	}
 
-	// Debug terminal info
-	log.DebugTerminalInfo()
-
 	log.Info("Starting Nina Engine")
 
 	// Load configuration
