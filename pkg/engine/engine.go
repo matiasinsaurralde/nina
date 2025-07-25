@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
 	"github.com/gin-gonic/gin"
 	"github.com/matiasinsaurralde/nina/internal/pkg/builder"
 	"github.com/matiasinsaurralde/nina/pkg/config"
@@ -22,16 +24,19 @@ type Engine interface {
 	Stop(ctx context.Context) error
 	SetConfig(cfg *config.Config)
 	GetConfig() *config.Config
+	SetDockerClient(cli *client.Client)
+	GetDockerClient() *client.Client
 }
 
 // BaseEngine implements the Engine interface
 type BaseEngine struct {
-	config  *config.Config
-	logger  *logger.Logger
-	store   *store.Store
-	builder builder.Builder
-	router  *gin.Engine
-	server  *http.Server
+	config       *config.Config
+	logger       *logger.Logger
+	store        *store.Store
+	builder      builder.Builder
+	router       *gin.Engine
+	server       *http.Server
+	dockerClient *client.Client
 }
 
 // NewEngine creates a new Engine server instance
@@ -49,19 +54,29 @@ func NewEngine(cfg *config.Config, log *logger.Logger, st *store.Store) Engine {
 	router.Use(gin.Recovery())
 	router.Use(loggerMiddleware(log))
 
+	// Initialize Docker client with default options
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Error("Failed to initialize Docker client", "error", err)
+		return nil
+	}
+	log.Info("Docker client initialized successfully")
+
 	// Initialize builder
 	b := &builder.BaseBuilder{}
+	b.SetDockerClient(dockerClient)
 	if err := b.Init(context.Background(), cfg, log); err != nil {
 		log.Error("Failed to initialize builder", "error", err)
 		// Continue without builder for now
 	}
 
 	server := &BaseEngine{
-		config:  cfg,
-		logger:  log,
-		store:   st,
-		builder: b,
-		router:  router,
+		config:       cfg,
+		logger:       log,
+		store:        st,
+		builder:      b,
+		router:       router,
+		dockerClient: dockerClient,
 	}
 
 	// Setup routes
@@ -399,9 +414,14 @@ func (s *BaseEngine) deleteBuildsHandler(c *gin.Context) {
 	toDelete := make([]string, 0)
 	keySet := make(map[string]struct{})
 
+	// Keep track of build key to Docker image tag:
+	// TODO: this can be improved
+	buildKeyToImageTag := make(map[string]string)
+
 	for _, build := range builds {
 		key := "nina-build-" + build.CommitHash
 		s.logger.Debug("Checking build", "app_name", build.AppName, "commit_hash", build.CommitHash, "search_id", id)
+		buildKeyToImageTag[key] = build.ImageTag
 		// Match by exact app name or by commit hash prefix
 		if build.AppName == id || strings.HasPrefix(build.CommitHash, id) {
 			if _, exists := keySet[key]; !exists {
@@ -416,7 +436,14 @@ func (s *BaseEngine) deleteBuildsHandler(c *gin.Context) {
 
 	deleted := make([]string, 0)
 	for _, key := range toDelete {
-		// TODO: Docker cleanup for this build (stub)
+		// Use the Docker client to remove the image:
+		imageTag := buildKeyToImageTag[key]
+		if _, err := s.dockerClient.ImageRemove(ctx, imageTag, image.RemoveOptions{Force: true}); err != nil {
+			s.logger.Warn("Failed to remove image", "image_tag", imageTag, "error", err)
+			continue
+		}
+		s.logger.Info("Removed image from internal Docker registry", "image_tag", imageTag)
+
 		// e.g., remove Docker image associated with this build
 		if err := s.store.DeleteBuildByKey(ctx, key); err != nil {
 			s.logger.Warn("Failed to delete build key", "key", key, "error", err)
@@ -429,6 +456,14 @@ func (s *BaseEngine) deleteBuildsHandler(c *gin.Context) {
 		"deleted": deleted,
 		"count":   len(deleted),
 	})
+}
+
+func (s *BaseEngine) SetDockerClient(cli *client.Client) {
+	s.dockerClient = cli
+}
+
+func (s *BaseEngine) GetDockerClient() *client.Client {
+	return s.dockerClient
 }
 
 // loggerMiddleware adds logging to requests

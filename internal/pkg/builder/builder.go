@@ -20,6 +20,8 @@ type Builder interface {
 	MatchBuildpack(ctx context.Context, req *types.BuildRequest) (Buildpack, error)
 	Build(ctx context.Context, bundle *Bundle, buildpack Buildpack) (*types.DeploymentImage, error)
 	Init(ctx context.Context, cfg *config.Config, log *logger.Logger) error
+	SetDockerClient(cli *client.Client)
+	GetDockerClient() *client.Client
 }
 
 // BaseBuilder is the base implementation of the Builder interface.
@@ -34,16 +36,9 @@ func (b *BaseBuilder) Init(ctx context.Context, cfg *config.Config, log *logger.
 	b.cfg = cfg
 	b.logger = log
 	b.buildpacks = make(map[string]Buildpack)
-	// Initialize Docker client with default options
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return err
-	}
-	b.dockerClient = dockerClient
-	b.logger.Info("Docker client initialized successfully")
 	for _, buildpack := range availableBuildpacks {
 		buildpack.SetConfig(ctx, cfg)
-		buildpack.SetDockerClient(dockerClient)
+		buildpack.SetDockerClient(b.dockerClient)
 		b.buildpacks[buildpack.Name()] = buildpack
 	}
 	b.logger.Info("Builder initialized", "buildpacks_count", len(availableBuildpacks))
@@ -90,4 +85,12 @@ func (b *BaseBuilder) Build(ctx context.Context, bundle *Bundle, buildpack Build
 		return nil, err
 	}
 	return deploymentImage, nil
+}
+
+func (b *BaseBuilder) SetDockerClient(cli *client.Client) {
+	b.dockerClient = cli
+}
+
+func (b *BaseBuilder) GetDockerClient() *client.Client {
+	return b.dockerClient
 }

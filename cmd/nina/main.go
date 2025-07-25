@@ -140,8 +140,8 @@ func provisionCmd() *cobra.Command {
 func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build and manage deployments",
-		Long:  `Build and manage deployments. Use 'build' to create a new build from the current directory, or 'build ls' to list existing builds.`,
+		Short: "Build projects",
+		Long:  `Build projects. Use 'build' to create a new build from the current directory, or 'build ls' to list existing builds.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			c, log, err := getCLI()
 			if err != nil {
@@ -154,18 +154,18 @@ func buildCmd() *cobra.Command {
 				return fmt.Errorf("failed to get current working directory: %w", err)
 			}
 
-			log.Info("Building deployment from directory", "dir", workingDir)
+			log.Info("Building project from directory", "dir", workingDir)
 
-			deploymentImage, err := c.Build(context.Background(), workingDir)
+			builtImage, err := c.Build(context.Background(), workingDir)
 			if err != nil {
 				return fmt.Errorf("failed to build deployment: %w", err)
 			}
 
 			// Output friendly success message
 			fmt.Printf("✅ Build completed successfully!\n")
-			fmt.Printf("📦 Image Tag: %s\n", deploymentImage.ImageTag)
-			fmt.Printf("🆔 Image ID: %s\n", deploymentImage.ImageID)
-			fmt.Printf("📏 Size: %s\n", formatBytes(deploymentImage.Size))
+			fmt.Printf("📦 Image Tag: %s\n", builtImage.ImageTag)
+			fmt.Printf("🆔 Image ID: %s\n", builtImage.ImageID)
+			fmt.Printf("📏 Size: %s\n", formatBytes(builtImage.Size))
 			fmt.Printf("\nThe container image has been successfully built and stored.\n")
 			return nil
 		},
