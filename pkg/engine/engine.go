@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -401,7 +402,8 @@ func (s *BaseEngine) deleteBuildsHandler(c *gin.Context) {
 	for _, build := range builds {
 		key := "nina-build-" + build.CommitHash
 		s.logger.Debug("Checking build", "app_name", build.AppName, "commit_hash", build.CommitHash, "search_id", id)
-		if build.AppName == id || build.CommitHash == id {
+		// Match by exact app name or by commit hash prefix
+		if build.AppName == id || strings.HasPrefix(build.CommitHash, id) {
 			if _, exists := keySet[key]; !exists {
 				toDelete = append(toDelete, key)
 				keySet[key] = struct{}{}
