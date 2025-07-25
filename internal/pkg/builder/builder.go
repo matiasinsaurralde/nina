@@ -16,8 +16,8 @@ var availableBuildpacks = []Buildpack{
 
 // Builder is the interface that wraps the MatchBuildpack method.
 type Builder interface {
-	ExtractBundle(ctx context.Context, req *types.DeploymentBuildRequest) (*Bundle, error)
-	MatchBuildpack(ctx context.Context, req *types.DeploymentBuildRequest) (Buildpack, error)
+	ExtractBundle(ctx context.Context, req *types.BuildRequest) (*Bundle, error)
+	MatchBuildpack(ctx context.Context, req *types.BuildRequest) (Buildpack, error)
 	Build(ctx context.Context, bundle *Bundle, buildpack Buildpack) (*types.DeploymentImage, error)
 	Init(ctx context.Context, cfg *config.Config, log *logger.Logger) error
 }
@@ -50,7 +50,7 @@ func (b *BaseBuilder) Init(ctx context.Context, cfg *config.Config, log *logger.
 	return nil
 }
 
-func (b *BaseBuilder) ExtractBundle(ctx context.Context, req *types.DeploymentBuildRequest) (*Bundle, error) {
+func (b *BaseBuilder) ExtractBundle(ctx context.Context, req *types.BuildRequest) (*Bundle, error) {
 	b.logger.Info("Extracting bundle", "app_name", req.AppName, "commit_hash", req.CommitHash)
 	bundle, err := NewBundle(req, b.logger)
 	if err != nil {
@@ -62,7 +62,7 @@ func (b *BaseBuilder) ExtractBundle(ctx context.Context, req *types.DeploymentBu
 }
 
 // MatchBuildpack matches the buildpack for the given request.
-func (b *BaseBuilder) MatchBuildpack(ctx context.Context, req *types.DeploymentBuildRequest) (Buildpack, error) {
+func (b *BaseBuilder) MatchBuildpack(ctx context.Context, req *types.BuildRequest) (Buildpack, error) {
 	var err error
 	var bundle *Bundle
 	bundle, err = b.ExtractBundle(ctx, req)

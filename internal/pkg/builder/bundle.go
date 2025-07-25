@@ -16,7 +16,7 @@ import (
 // Bundle represents a bundle of contents.
 type Bundle struct {
 	Contents []byte
-	req      *types.DeploymentBuildRequest
+	req      *types.BuildRequest
 	tempDir  string
 	logger   *logger.Logger
 }
@@ -31,8 +31,8 @@ func (b *Bundle) GetLogger() *logger.Logger {
 	return b.logger
 }
 
-// GetRequest returns the original deployment build request
-func (b *Bundle) GetRequest() *types.DeploymentBuildRequest {
+// GetRequest returns the original build request
+func (b *Bundle) GetRequest() *types.BuildRequest {
 	return b.req
 }
 
@@ -50,7 +50,7 @@ func (b *Bundle) Cleanup() error {
 }
 
 // NewBundle creates a new bundle from the given request.
-func NewBundle(req *types.DeploymentBuildRequest, log *logger.Logger) (bundle *Bundle, err error) {
+func NewBundle(req *types.BuildRequest, log *logger.Logger) (bundle *Bundle, err error) {
 	bundle = &Bundle{
 		logger: log,
 	}

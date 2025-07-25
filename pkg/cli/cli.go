@@ -215,6 +215,15 @@ func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, 
 		return nil, fmt.Errorf("failed to get last commit information: %w", err)
 	}
 
+	// Check if build already exists for this commit
+	exists, err := c.BuildExists(ctx, commitInfo.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if build exists: %w", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("a build for commit %s already exists", commitInfo.Hash)
+	}
+
 	// Create temporary directory and copy contents
 	tempDir, err := archive.CreateTempDirAndCopy(workingDir)
 	if err != nil {
@@ -229,7 +238,7 @@ func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, 
 	}
 
 	// Create build request
-	req := &types.DeploymentBuildRequest{
+	req := &types.BuildRequest{
 		AppName:        appName,
 		RepoURL:        repoURL,
 		Author:         commitInfo.Author,
@@ -276,4 +285,76 @@ func (c *CLI) Build(ctx context.Context, workingDir string) (*types.Deployment, 
 	}
 
 	return &deployment, nil
+}
+
+// ListBuilds lists all builds
+func (c *CLI) ListBuilds(ctx context.Context) ([]*types.Build, error) {
+	url := fmt.Sprintf("http://%s/api/v1/builds", c.config.GetServerAddr())
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list builds failed: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	var response struct {
+		Builds []*types.Build `json:"builds"`
+		Count  int            `json:"count"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return response.Builds, nil
+}
+
+// BuildExists checks if a build exists for the given commit hash
+func (c *CLI) BuildExists(ctx context.Context, commitHash string) (bool, error) {
+	url := fmt.Sprintf("http://%s/api/v1/builds?commit_hash=%s", c.config.GetServerAddr(), commitHash)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return false, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("check build exists failed: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	var response struct {
+		Builds []*types.Build `json:"builds"`
+		Count  int            `json:"count"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return false, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return len(response.Builds) > 0, nil
 }

@@ -120,6 +120,7 @@ func (s *BaseEngine) setupRoutes() {
 	v1 := s.router.Group("/api/v1")
 	v1.POST("/provision", s.provisionHandler)
 	v1.POST("/build", s.buildHandler)
+	v1.GET("/builds", s.listBuildsHandler)
 	v1.DELETE("/deployments/:id", s.deleteDeploymentHandler)
 	v1.GET("/deployments/:id/status", s.getDeploymentStatusHandler)
 	v1.GET("/deployments", s.listDeploymentsHandler)
@@ -240,7 +241,7 @@ func (s *BaseEngine) listDeploymentsHandler(c *gin.Context) {
 func (s *BaseEngine) buildHandler(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
-	var req types.DeploymentBuildRequest
+	var req types.BuildRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		s.logger.Error("Invalid build request body", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -260,10 +261,24 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 
 	s.logger.Info("Processing build request", "app_name", req.AppName, "commit_hash", req.CommitHash)
 
+	// Create build record in Redis
+	_, buildErr := s.store.CreateBuild(ctx, &req)
+	if buildErr != nil {
+		s.logger.Error("Failed to create build record", "app_name", req.AppName, "error", buildErr)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create build record",
+		})
+		return
+	}
+
 	// Extract bundle
 	bundle, err := s.builder.ExtractBundle(ctx, &req)
 	if err != nil {
 		s.logger.Error("Failed to extract bundle", "app_name", req.AppName, "error", err)
+		// Update build status to failed
+		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
+			s.logger.Error("Failed to update build status to failed", "error", updateErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to extract bundle",
 		})
@@ -274,6 +289,10 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 	buildpack, err := s.builder.MatchBuildpack(ctx, &req)
 	if err != nil {
 		s.logger.Error("Failed to match buildpack", "app_name", req.AppName, "error", err)
+		// Update build status to failed
+		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
+			s.logger.Error("Failed to update build status to failed", "error", updateErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to match buildpack",
 		})
@@ -282,6 +301,10 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 
 	if buildpack == nil {
 		s.logger.Warn("No matching buildpack found", "app_name", req.AppName)
+		// Update build status to failed
+		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
+			s.logger.Error("Failed to update build status to failed", "error", updateErr)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "No matching buildpack found for this project type",
 		})
@@ -290,14 +313,28 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 
 	s.logger.Info("Buildpack matched", "app_name", req.AppName, "buildpack", buildpack.Name())
 
+	// Update build status to building
+	if err := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusBuilding); err != nil {
+		s.logger.Error("Failed to update build status to building", "error", err)
+	}
+
 	// Build the project
 	deployment, err := buildpack.Build(ctx, bundle)
 	if err != nil {
 		s.logger.Error("Failed to build project", "app_name", req.AppName, "error", err)
+		// Update build status to failed
+		if updateErr := s.store.UpdateBuildStatus(ctx, req.CommitHash, types.BuildStatusFailed); updateErr != nil {
+			s.logger.Error("Failed to update build status to failed", "error", updateErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to build project",
 		})
 		return
+	}
+
+	// Update build with image information and status to built
+	if err := s.store.UpdateBuildWithImage(ctx, req.CommitHash, types.BuildStatusBuilt, deployment.ImageTag, deployment.ImageID, deployment.Size); err != nil {
+		s.logger.Error("Failed to update build status to built", "error", err)
 	}
 
 	s.logger.Info("Build completed successfully", "app_name", req.AppName, "temp_dir", bundle.GetTempDir())
@@ -308,6 +345,35 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, deployment)
+}
+
+// listBuildsHandler handles build listing requests
+func (s *BaseEngine) listBuildsHandler(c *gin.Context) {
+	commitHash := c.Query("commit_hash")
+
+	var builds []*types.Build
+	var err error
+
+	if commitHash != "" {
+		// Get builds by commit hash
+		builds, err = s.store.ListBuildsByCommitHash(c.Request.Context(), commitHash)
+	} else {
+		// Get all builds
+		builds, err = s.store.ListBuilds(c.Request.Context())
+	}
+
+	if err != nil {
+		s.logger.Error("Failed to list builds", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to list builds",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"builds": builds,
+		"count":  len(builds),
+	})
 }
 
 // loggerMiddleware adds logging to requests

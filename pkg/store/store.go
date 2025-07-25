@@ -10,6 +10,7 @@ import (
 
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
+	"github.com/matiasinsaurralde/nina/pkg/types"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -228,4 +229,153 @@ func (s *Store) ListDeployments(ctx context.Context) ([]*Deployment, error) {
 // generateID generates a simple ID for deployments
 func generateID() string {
 	return fmt.Sprintf("deploy-%d", time.Now().UnixNano())
+}
+
+// CreateBuild creates a new build in Redis
+func (s *Store) CreateBuild(ctx context.Context, req *types.BuildRequest) (*types.Build, error) {
+	build := &types.Build{
+		CreatedAt:     time.Now(),
+		AppName:       req.AppName,
+		RepoURL:       req.RepoURL,
+		Author:        req.Author,
+		AuthorEmail:   req.AuthorEmail,
+		CommitHash:    req.CommitHash,
+		CommitMessage: req.CommitMessage,
+		Status:        types.BuildStatusPending,
+	}
+
+	// Store build data with nina-build prefix
+	key := fmt.Sprintf("nina-build-%s", req.CommitHash)
+	data, err := json.Marshal(build)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal build: %w", err)
+	}
+
+	if err := s.client.Set(ctx, key, data, 0).Err(); err != nil {
+		return nil, fmt.Errorf("failed to store build: %w", err)
+	}
+
+	s.logger.Info("Created build", "commit_hash", req.CommitHash, "app_name", req.AppName)
+	return build, nil
+}
+
+// GetBuild retrieves a build by commit hash
+func (s *Store) GetBuild(ctx context.Context, commitHash string) (*types.Build, error) {
+	key := fmt.Sprintf("nina-build-%s", commitHash)
+	data, err := s.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, fmt.Errorf("build not found: %s", commitHash)
+		}
+		return nil, fmt.Errorf("failed to get build: %w", err)
+	}
+
+	var build types.Build
+	if err := json.Unmarshal(data, &build); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal build: %w", err)
+	}
+
+	return &build, nil
+}
+
+// UpdateBuildStatus updates the status of a build
+func (s *Store) UpdateBuildStatus(ctx context.Context, commitHash string, status types.BuildStatus) error {
+	build, err := s.GetBuild(ctx, commitHash)
+	if err != nil {
+		return err
+	}
+
+	build.Status = status
+	if status == types.BuildStatusBuilt || status == types.BuildStatusFailed {
+		build.FinishedAt = time.Now()
+	}
+
+	key := fmt.Sprintf("nina-build-%s", commitHash)
+	data, err := json.Marshal(build)
+	if err != nil {
+		return fmt.Errorf("failed to marshal build: %w", err)
+	}
+
+	if err := s.client.Set(ctx, key, data, 0).Err(); err != nil {
+		return fmt.Errorf("failed to update build: %w", err)
+	}
+
+	s.logger.Info("Updated build status", "commit_hash", commitHash, "status", status)
+	return nil
+}
+
+// UpdateBuildWithImage updates the build with image information and status
+func (s *Store) UpdateBuildWithImage(ctx context.Context, commitHash string, status types.BuildStatus, imageTag, imageID string, size int64) error {
+	build, err := s.GetBuild(ctx, commitHash)
+	if err != nil {
+		return err
+	}
+
+	build.Status = status
+	build.ImageTag = imageTag
+	build.ImageID = imageID
+	build.Size = size
+	if status == types.BuildStatusBuilt || status == types.BuildStatusFailed {
+		build.FinishedAt = time.Now()
+	}
+
+	key := fmt.Sprintf("nina-build-%s", commitHash)
+	data, err := json.Marshal(build)
+	if err != nil {
+		return fmt.Errorf("failed to marshal build: %w", err)
+	}
+
+	if err := s.client.Set(ctx, key, data, 0).Err(); err != nil {
+		return fmt.Errorf("failed to update build: %w", err)
+	}
+
+	s.logger.Info("Updated build with image", "commit_hash", commitHash, "status", status, "image_tag", imageTag)
+	return nil
+}
+
+// ListBuilds retrieves all builds
+func (s *Store) ListBuilds(ctx context.Context) ([]*types.Build, error) {
+	pattern := "nina-build-*"
+	keys, err := s.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get build keys: %w", err)
+	}
+
+	builds := make([]*types.Build, 0, len(keys))
+	for _, key := range keys {
+		data, err := s.client.Get(ctx, key).Bytes()
+		if err != nil {
+			s.logger.Warn("Failed to get build data", "key", key, "error", err)
+			continue
+		}
+
+		var build types.Build
+		if err := json.Unmarshal(data, &build); err != nil {
+			s.logger.Warn("Failed to unmarshal build", "key", key, "error", err)
+			continue
+		}
+
+		builds = append(builds, &build)
+	}
+
+	return builds, nil
+}
+
+// ListBuildsByCommitHash retrieves builds by commit hash
+func (s *Store) ListBuildsByCommitHash(ctx context.Context, commitHash string) ([]*types.Build, error) {
+	key := fmt.Sprintf("nina-build-%s", commitHash)
+	data, err := s.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return []*types.Build{}, nil // Return empty slice if not found
+		}
+		return nil, fmt.Errorf("failed to get build: %w", err)
+	}
+
+	var build types.Build
+	if err := json.Unmarshal(data, &build); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal build: %w", err)
+	}
+
+	return []*types.Build{&build}, nil
 }

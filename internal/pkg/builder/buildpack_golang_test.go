@@ -43,7 +43,7 @@ func TestBuildpackGolang_Match(t *testing.T) {
 	// Load and encode the test bundle
 	bundleContents := loadTestBundle(t)
 
-	bundle, err := NewBundle(&types.DeploymentBuildRequest{
+	bundle, err := NewBundle(&types.BuildRequest{
 		BundleContents: bundleContents,
 	}, log)
 	assert.NoError(t, err)

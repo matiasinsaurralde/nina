@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/matiasinsaurralde/nina/pkg/cli"
 	"github.com/matiasinsaurralde/nina/pkg/config"
@@ -38,6 +39,7 @@ This CLI allows you to interact with the Nina Engine server to manage container 
 	// Add subcommands
 	rootCmd.AddCommand(provisionCmd())
 	rootCmd.AddCommand(buildCmd())
+	rootCmd.AddCommand(buildsCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(listCmd())
@@ -163,6 +165,63 @@ func buildCmd() *cobra.Command {
 			}
 
 			fmt.Println(string(data))
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func buildsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "builds",
+		Short: "List all builds",
+		Long:  `List all builds in a tabular format.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			c, log, err := getCLI()
+			if err != nil {
+				return err
+			}
+
+			log.Info("Listing builds")
+
+			builds, err := c.ListBuilds(context.Background())
+			if err != nil {
+				return fmt.Errorf("failed to list builds: %w", err)
+			}
+
+			if len(builds) == 0 {
+				fmt.Println("No builds found.")
+				return nil
+			}
+
+			// Print header
+			fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n", "APP NAME", "COMMIT HASH", "AUTHOR", "COMMIT MESSAGE", "STATUS")
+			fmt.Println(strings.Repeat("-", 110))
+
+			// Print builds
+			for _, build := range builds {
+				// Truncate commit message if too long
+				commitMsg := build.CommitMessage
+				if len(commitMsg) > 37 {
+					commitMsg = commitMsg[:37] + "..."
+				}
+
+				// Truncate commit hash to 12 characters
+				commitHash := build.CommitHash
+				if len(commitHash) > 12 {
+					commitHash = commitHash[:12]
+				}
+
+				fmt.Printf("%-20s %-12s %-20s %-40s %-15s\n",
+					build.AppName,
+					commitHash,
+					build.Author,
+					commitMsg,
+					build.Status)
+			}
+
+			fmt.Printf("\nTotal builds: %d\n", len(builds))
 			return nil
 		},
 	}

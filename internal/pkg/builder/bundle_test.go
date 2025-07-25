@@ -45,7 +45,7 @@ func TestNewBundleWithLogging(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	// Create test request
-	req := &types.DeploymentBuildRequest{
+	req := &types.BuildRequest{
 		AppName:        "test-app",
 		RepoURL:        "https://github.com/test/test-app",
 		Author:         "Test User",
