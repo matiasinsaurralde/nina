@@ -32,7 +32,7 @@ func NewCLI(cfg *config.Config, log *logger.Logger) *CLI {
 		config: cfg,
 		logger: log,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 5 * time.Minute,
 		},
 	}
 }

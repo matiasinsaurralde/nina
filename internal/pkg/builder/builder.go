@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/docker/docker/client"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/logger"
 	"github.com/matiasinsaurralde/nina/pkg/types"
@@ -23,17 +24,26 @@ type Builder interface {
 
 // BaseBuilder is the base implementation of the Builder interface.
 type BaseBuilder struct {
-	cfg        *config.Config
-	logger     *logger.Logger
-	buildpacks map[string]Buildpack
+	cfg          *config.Config
+	logger       *logger.Logger
+	buildpacks   map[string]Buildpack
+	dockerClient *client.Client // Docker Engine API client (private)
 }
 
 func (b *BaseBuilder) Init(ctx context.Context, cfg *config.Config, log *logger.Logger) error {
 	b.cfg = cfg
 	b.logger = log
 	b.buildpacks = make(map[string]Buildpack)
+	// Initialize Docker client with default options
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return err
+	}
+	b.dockerClient = dockerClient
+	b.logger.Info("Docker client initialized successfully")
 	for _, buildpack := range availableBuildpacks {
 		buildpack.SetConfig(ctx, cfg)
+		buildpack.SetDockerClient(dockerClient)
 		b.buildpacks[buildpack.Name()] = buildpack
 	}
 	b.logger.Info("Builder initialized", "buildpacks_count", len(availableBuildpacks))

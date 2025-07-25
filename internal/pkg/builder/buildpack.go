@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 
+	"github.com/docker/docker/client"
 	"github.com/matiasinsaurralde/nina/pkg/config"
 	"github.com/matiasinsaurralde/nina/pkg/types"
 )
@@ -16,10 +17,13 @@ type Buildpack interface {
 	Name() string
 	SetConfig(ctx context.Context, cfg *config.Config) error
 	GetConfig() *config.Config
+	SetDockerClient(cli *client.Client)
+	GetDockerClient() *client.Client
 }
 
 type BaseBuildpack struct {
-	Config *config.Config
+	Config       *config.Config
+	DockerClient *client.Client
 }
 
 func (b *BaseBuildpack) SetConfig(ctx context.Context, cfg *config.Config) error {
@@ -29,4 +33,12 @@ func (b *BaseBuildpack) SetConfig(ctx context.Context, cfg *config.Config) error
 
 func (b *BaseBuildpack) GetConfig() *config.Config {
 	return b.Config
+}
+
+func (b *BaseBuildpack) SetDockerClient(cli *client.Client) {
+	b.DockerClient = cli
+}
+
+func (b *BaseBuildpack) GetDockerClient() *client.Client {
+	return b.DockerClient
 }

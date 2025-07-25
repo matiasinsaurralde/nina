@@ -74,7 +74,9 @@ func (s *BaseEngine) Start(ctx context.Context) error {
 	s.server = &http.Server{
 		Addr:              s.config.GetServerAddr(),
 		Handler:           s.router,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: 5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       5 * time.Minute,
 	}
 
 	s.logger.Info("Starting Engine server", "addr", s.config.GetServerAddr())
@@ -236,6 +238,8 @@ func (s *BaseEngine) listDeploymentsHandler(c *gin.Context) {
 
 // buildHandler handles build requests
 func (s *BaseEngine) buildHandler(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
 	var req types.DeploymentBuildRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		s.logger.Error("Invalid build request body", "error", err)
@@ -257,7 +261,7 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 	s.logger.Info("Processing build request", "app_name", req.AppName, "commit_hash", req.CommitHash)
 
 	// Extract bundle
-	bundle, err := s.builder.ExtractBundle(c.Request.Context(), &req)
+	bundle, err := s.builder.ExtractBundle(ctx, &req)
 	if err != nil {
 		s.logger.Error("Failed to extract bundle", "app_name", req.AppName, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -267,7 +271,7 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 	}
 
 	// Match buildpack
-	buildpack, err := s.builder.MatchBuildpack(c.Request.Context(), &req)
+	buildpack, err := s.builder.MatchBuildpack(ctx, &req)
 	if err != nil {
 		s.logger.Error("Failed to match buildpack", "app_name", req.AppName, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -287,7 +291,7 @@ func (s *BaseEngine) buildHandler(c *gin.Context) {
 	s.logger.Info("Buildpack matched", "app_name", req.AppName, "buildpack", buildpack.Name())
 
 	// Build the project
-	deployment, err := buildpack.Build(c.Request.Context(), bundle)
+	deployment, err := buildpack.Build(ctx, bundle)
 	if err != nil {
 		s.logger.Error("Failed to build project", "app_name", req.AppName, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
