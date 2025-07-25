@@ -379,3 +379,12 @@ func (s *Store) ListBuildsByCommitHash(ctx context.Context, commitHash string) (
 
 	return []*types.Build{&build}, nil
 }
+
+// DeleteBuildByKey deletes a build by its Redis key
+func (s *Store) DeleteBuildByKey(ctx context.Context, key string) error {
+	if err := s.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("failed to delete build key %s: %w", key, err)
+	}
+	s.logger.Info("Deleted build key", "key", key)
+	return nil
+}

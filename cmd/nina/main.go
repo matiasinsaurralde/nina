@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -171,6 +173,7 @@ func buildCmd() *cobra.Command {
 
 	// Add subcommands
 	cmd.AddCommand(buildLsCmd())
+	cmd.AddCommand(buildRmCmd())
 
 	return cmd
 }
@@ -229,6 +232,56 @@ func buildLsCmd() *cobra.Command {
 		},
 	}
 
+	return cmd
+}
+
+func buildRmCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rm [id]",
+		Short: "Remove builds by app name or commit hash",
+		Long:  `Remove builds by app name or commit hash. This will delete all builds that match the given app name or commit hash.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			c, _, err := getCLI()
+			if err != nil {
+				return err
+			}
+			id := args[0]
+			url := fmt.Sprintf("http://%s/api/v1/builds/%s", c.Config().GetServerAddr(), id)
+			req, err := http.NewRequest("DELETE", url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			resp, err := c.Client().Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("delete failed: %s (status: %d)", string(body), resp.StatusCode)
+			}
+			var response struct {
+				Deleted []string `json:"deleted"`
+				Count   int      `json:"count"`
+			}
+			if err := json.Unmarshal(body, &response); err != nil {
+				return fmt.Errorf("failed to unmarshal response: %w", err)
+			}
+			if response.Count == 0 {
+				fmt.Printf("No builds matched '%s'.\n", id)
+				return nil
+			}
+			fmt.Printf("Deleted %d build(s):\n", response.Count)
+			for _, key := range response.Deleted {
+				fmt.Printf("- %s\n", key)
+			}
+			return nil
+		},
+	}
 	return cmd
 }
 

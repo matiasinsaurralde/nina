@@ -121,6 +121,7 @@ func (s *BaseEngine) setupRoutes() {
 	v1.POST("/provision", s.provisionHandler)
 	v1.POST("/build", s.buildHandler)
 	v1.GET("/builds", s.listBuildsHandler)
+	v1.DELETE("/builds/:id", s.deleteBuildsHandler) // <-- new endpoint
 	v1.DELETE("/deployments/:id", s.deleteDeploymentHandler)
 	v1.GET("/deployments/:id/status", s.getDeploymentStatusHandler)
 	v1.GET("/deployments", s.listDeploymentsHandler)
@@ -373,6 +374,58 @@ func (s *BaseEngine) listBuildsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"builds": builds,
 		"count":  len(builds),
+	})
+}
+
+// deleteBuildsHandler handles build deletion by app name or commit hash
+func (s *BaseEngine) deleteBuildsHandler(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID is required"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	builds, err := s.store.ListBuilds(ctx)
+	if err != nil {
+		s.logger.Error("Failed to list builds for deletion", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list builds"})
+		return
+	}
+
+	s.logger.Info("Searching for builds to delete", "search_id", id, "total_builds", len(builds))
+
+	toDelete := make([]string, 0)
+	keySet := make(map[string]struct{})
+
+	for _, build := range builds {
+		key := "nina-build-" + build.CommitHash
+		s.logger.Debug("Checking build", "app_name", build.AppName, "commit_hash", build.CommitHash, "search_id", id)
+		if build.AppName == id || build.CommitHash == id {
+			if _, exists := keySet[key]; !exists {
+				toDelete = append(toDelete, key)
+				keySet[key] = struct{}{}
+				s.logger.Info("Added build to deletion list", "key", key, "app_name", build.AppName, "commit_hash", build.CommitHash)
+			}
+		}
+	}
+
+	s.logger.Info("Builds to delete", "count", len(toDelete), "keys", toDelete)
+
+	deleted := make([]string, 0)
+	for _, key := range toDelete {
+		// TODO: Docker cleanup for this build (stub)
+		// e.g., remove Docker image associated with this build
+		if err := s.store.DeleteBuildByKey(ctx, key); err != nil {
+			s.logger.Warn("Failed to delete build key", "key", key, "error", err)
+			continue
+		}
+		deleted = append(deleted, key)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"deleted": deleted,
+		"count":   len(deleted),
 	})
 }
 

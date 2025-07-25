@@ -358,3 +358,6 @@ func (c *CLI) BuildExists(ctx context.Context, commitHash string) (bool, error) 
 
 	return len(response.Builds) > 0, nil
 }
+
+func (c *CLI) Config() *config.Config { return c.config }
+func (c *CLI) Client() *http.Client   { return c.client }
